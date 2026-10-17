@@ -3,6 +3,10 @@
     "version": "2.0.0",
     "private": true,
     "description": "Market: control, automate and let Claude drive your iPhones from Windows.",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Kyros-Software-Ltd/market.git"
+    },
     "workspaces": [
         "backend",
         "frontend"

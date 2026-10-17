@@ -100,7 +100,7 @@ In busy video apps (TikTok, Reels) the screen is only read a few levels deep so 
 
 ```
 backend/            Phone engine (Node): go-ios, WebDriverAgent, setup, controls, media,
-  src/              automations, scheduler, Wi-Fi (usbmux proxy), local API on :4000
+  src/              automations, scheduler, Wi-Fi (usbmux proxy), updates, local API on :4000
   src/py/           Python helpers (pymobiledevice3): media transfer, Wi-Fi switch
   mcp/              Claude's tools (MCP server)
   automations/      Example automations copied to the user's folder on first run
@@ -110,7 +110,8 @@ frontend/           Dashboard: Next.js + HeroUI on :4100, /api proxied to the ba
   src/views/        The pages
   src/components/   Shell, phone control, live screen, HeroUI wrappers
   src/lib/          API client, app state, icons
-scripts/start.js    Starts both and opens the browser
+scripts/start.js    Starts both, opens the browser and applies updates
+.github/workflows/  Release: publishes a GitHub Release for each version tag
 ```
 
 ## How it works
@@ -140,6 +141,21 @@ npm run build      # rebuild the dashboard after changing frontend/
 npm run typecheck  # TypeScript check of the dashboard
 npm run backend    # backend only (API on :4000)
 ```
+
+## Updates
+
+Market checks for a new version every few hours. When there's one, a banner shows at the top of every page: click **Update** and Market downloads it, reinstalls its packages, rebuilds the dashboard and restarts, and the page reloads by itself. Your phones, automations, schedules and media are in the data folder, so updates don't touch them. **Setup → Options** shows your version and has **Check for updates**.
+
+Updating needs Market to have been started with `npm start` (or Start with Windows). If you installed with `git clone`, Market fast-forwards to the new release's tag, so keep your own changes on a separate branch.
+
+### Publishing an update
+
+```bash
+npm version patch
+git push --follow-tags
+```
+
+`npm version` bumps the version in `package.json` and tags the commit (use `minor` or `major` for bigger changes). Pushing the tag runs the Release workflow, which publishes a GitHub Release with notes made from the commits. Every Market install sees it within a few hours.
 
 ## License
 

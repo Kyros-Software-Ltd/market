@@ -8,6 +8,7 @@ const { ROOT, DATA_DIR, prepareDataDir, loadConfig } = require('./paths');
 const desktop = require('./desktop');
 const { DeviceManager } = require('./devices');
 const setup = require('./setup');
+const updater = require('./updater');
 const media = require('./media');
 const { Controller } = require('./control');
 const { AutomationRunner } = require('./automations');
@@ -328,6 +329,26 @@ function createApp() {
             if (typeof req.body.openAtLogin === 'boolean') desktop.setOpenAtLogin(req.body.openAtLogin);
         }),
     );
+    // Updates from the repo's GitHub Releases; start.js applies them (see updater.js).
+    app.get(
+        '/api/update',
+        api(() => updater.status()),
+    );
+    app.post(
+        '/api/update/check',
+        api(async () => {
+            await updater.check();
+            return updater.status();
+        }),
+    );
+    app.post(
+        '/api/update',
+        api(() => {
+            if (runner.listJobs(200).some((j) => j.status === 'running'))
+                throw new Error('Automations are running. Stop them or let them finish, then update.');
+            return updater.requestApply();
+        }),
+    );
     app.post(
         '/api/open-folder',
         api((req) => {
@@ -437,6 +458,7 @@ async function start({ port = config.port } = {}) {
             ctx.proxy.start();
             ctx.devices.start();
             ctx.scheduler.start();
+            updater.start();
             const shutdown = () => {
                 ctx.runner.stopAll();
                 ctx.scheduler.stop();
@@ -461,6 +483,10 @@ if (require.main === module) {
             };
             process.on('SIGINT', stop);
             process.on('SIGTERM', stop);
+            updater.onApply(() => {
+                shutdown();
+                process.exit(updater.UPDATE_EXIT_CODE);
+            });
         })
         .catch((e) => {
             console.error(e.code === 'EADDRINUSE' ? `Port ${config.port} is in use. Is Market already open?` : e);

@@ -589,6 +589,25 @@ main {
     height: 16px;
     color: #d97706;
 }
+.notice.info {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1e40af;
+}
+.notice.info > svg {
+    color: #2563eb;
+}
+.notice .block {
+    display: block;
+}
+.spin {
+    animation: mk-spin 1s linear infinite;
+}
+@keyframes mk-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
 
 .logs {
     margin: 0;

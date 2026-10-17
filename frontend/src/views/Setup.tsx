@@ -4,6 +4,7 @@ import { Check as CheckIcon, Download, ExternalLink, FileDown, FolderOpen } from
 import { type ReactNode, useEffect, useState } from 'react';
 import { StatusBadge } from '@/components/common';
 import { PhoneState } from '@/components/PhoneState';
+import { VersionRow } from '@/components/Update';
 import { Panel, SelectField, Toggle } from '@/components/ui';
 import { type Device, get, post, type SetupInfo } from '@/lib/api';
 import { modelName } from '@/lib/format';
@@ -284,6 +285,7 @@ export function SetupPage({ setup, reload }: { setup: SetupInfo | null; reload: 
                                 />
                             </div>
                         )}
+                        <VersionRow />
                         <div className="row">
                             <span className="grow mono muted ellipsis">{s?.dataDir}</span>
                             <Button

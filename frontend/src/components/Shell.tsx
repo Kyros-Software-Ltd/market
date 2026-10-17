@@ -6,6 +6,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { Toaster } from 'sonner';
 import { PhoneControl } from '@/components/PhoneControl';
 import { PromptProvider } from '@/components/Prompt';
+import { UpdateNotice } from '@/components/Update';
 import { CalendarIcon, ClaudeCodeIcon, FlowIcon, FolderOpenIcon, HomeIcon, PhoneIcon, SetupIcon } from '@/lib/icons';
 import { type Page, StoreProvider, useStore } from '@/lib/store';
 
@@ -109,6 +110,7 @@ function Frame({ children }: { children: ReactNode }) {
             <main>
                 <div className="page">
                     <div className="page-inner">
+                        <UpdateNotice />
                         {status.usbError && (
                             <div className="notice">
                                 <CircleX />

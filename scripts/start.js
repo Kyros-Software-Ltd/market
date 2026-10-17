@@ -5,9 +5,12 @@
 //   npm run dev          same, with the dashboard in dev mode (hot reload)
 //   ... --hidden         don't open the browser (used by Start with Windows and Claude)
 // If Market is already running it just opens the browser. Ctrl+C stops everything.
+// Updates: when you click Update, the backend exits with UPDATE_EXIT_CODE; this script then applies
+// the release (backend/src/updater.js) and runs a fresh copy of itself, which rebuilds the dashboard.
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
+const updater = require('../backend/src/updater');
 
 const ROOT = path.join(__dirname, '..');
 const FRONTEND = path.join(ROOT, 'frontend');
@@ -44,17 +47,29 @@ const nextBin = () => require.resolve('next/dist/bin/next', { paths: [FRONTEND] 
         return;
     }
 
-    if (!dev && !fs.existsSync(path.join(FRONTEND, '.next', 'BUILD_ID'))) {
-        console.log('Building the dashboard (first run only)…');
+    // Build the dashboard on the first run and after every update.
+    const stamp = path.join(FRONTEND, '.next', 'market-version');
+    const built = fs.existsSync(path.join(FRONTEND, '.next', 'BUILD_ID')) && fs.existsSync(stamp);
+    if (!dev && (!built || fs.readFileSync(stamp, 'utf8') !== updater.VERSION)) {
+        console.log(
+            built ? `Building the dashboard for ${updater.VERSION}…` : 'Building the dashboard (first run only)…',
+        );
         const r = spawnSync(process.execPath, [nextBin(), 'build'], { cwd: FRONTEND, stdio: 'inherit' });
         if (r.status !== 0) process.exit(r.status || 1);
+        fs.writeFileSync(stamp, updater.VERSION);
     }
 
     const children = [];
     const run = (name, args, cwd) => {
-        const child = spawn(process.execPath, args, { cwd, stdio: hidden ? 'ignore' : 'inherit', windowsHide: true });
+        const child = spawn(process.execPath, args, {
+            cwd,
+            stdio: hidden ? 'ignore' : 'inherit',
+            windowsHide: true,
+            env: { ...process.env, MARKET_SUPERVISED: '1' },
+        });
         child.on('exit', (code) => {
             if (stopping) return;
+            if (code === updater.UPDATE_EXIT_CODE) return update();
             console.log(`${name} stopped (${code}); stopping Market`);
             stop();
         });
@@ -71,6 +86,25 @@ const nextBin = () => require.resolve('next/dist/bin/next', { paths: [FRONTEND] 
             } catch {}
         }
         setTimeout(() => process.exit(0), 1500);
+    };
+    // Stop the dashboard, apply the update, then hand over to a fresh copy of this script.
+    // It stays attached to this console so the terminal keeps showing Market's output.
+    const update = async () => {
+        stopping = true;
+        for (const c of children) {
+            try {
+                c.kill();
+            } catch {}
+        }
+        await sleep(1500); // let Windows release the files they had open
+        console.log('\nUpdating Market…');
+        await updater.applyPending();
+        const args = process.argv.slice(2).filter((a) => a !== '--hidden');
+        const next = spawn(process.execPath, [__filename, ...args, '--hidden'], {
+            stdio: 'inherit',
+            windowsHide: true,
+        });
+        next.on('exit', (code) => process.exit(code ?? 0));
     };
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);

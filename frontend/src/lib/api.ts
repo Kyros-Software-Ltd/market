@@ -108,6 +108,17 @@ export interface ClaudeInfo {
     activity: Activity[];
 }
 
+export interface UpdateInfo {
+    version: string;
+    repo: string | null;
+    latest: { version: string; tag: string; notes: string; url: string; publishedAt: number | null } | null;
+    available: boolean;
+    checkedAt: number;
+    error: string;
+    canApply: boolean;
+    last: { from: string; to: string; ok: boolean; error: string; at: number } | null;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await fetch(`/api${path}`, {
         method,
