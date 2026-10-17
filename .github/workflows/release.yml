@@ -84,6 +84,14 @@ jobs:
             - uses: actions/setup-node@v4
               with:
                   node-version: 22
+                  cache: npm
+
+            # Next's build cache: only the pages that changed get rebuilt.
+            - uses: actions/cache@v4
+              with:
+                  path: frontend/.next/cache
+                  key: next-${{ hashFiles('package-lock.json') }}-${{ hashFiles('frontend/src/**') }}
+                  restore-keys: next-${{ hashFiles('package-lock.json') }}-
 
             - name: Build the dashboard
               run: |
@@ -94,17 +102,30 @@ jobs:
                   npm run build
                   npm prune --omit=dev
 
+            # The sideloading helpers rarely change and take most of the build, so reuse the last
+            # build's .exe files unless something in sideload/ changed.
+            - uses: actions/cache@v4
+              id: helpers
+              with:
+                  path: |
+                      sideload/target/release/market-sideload.exe
+                      sideload/anisette/target/i686-pc-windows-msvc/release/market-anisette.exe
+                  key: helpers-${{ hashFiles('sideload/**/*.rs', 'sideload/**/Cargo.toml', 'sideload/**/Cargo.lock') }}
+
             - uses: dtolnay/rust-toolchain@stable
+              if: steps.helpers.outputs.cache-hit != 'true'
               with:
                   targets: i686-pc-windows-msvc
 
             - uses: Swatinem/rust-cache@v2
+              if: steps.helpers.outputs.cache-hit != 'true'
               with:
                   workspaces: |
                       sideload
                       sideload/anisette
 
             - name: Build the sideloading helpers
+              if: steps.helpers.outputs.cache-hit != 'true'
               run: |
                   cargo build --release --manifest-path sideload/Cargo.toml
                   # iCloud's AOSKit.dll is 32-bit, so this one is too.
