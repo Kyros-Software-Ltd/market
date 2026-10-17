@@ -3,11 +3,13 @@
 // backend and dashboard have loaded: the backend asks for the update and exits with
 // UPDATE_EXIT_CODE, then start.js calls applyPending() (download the release or git fast-forward
 // to its tag, npm install) and starts Market again, which rebuilds the dashboard for the new version.
+// A private repo needs a read-only GitHub token: "updateToken" in the data folder's config.json, or
+// MARKET_UPDATE_TOKEN.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { DATA_DIR, readJson, writeJson } = require('./paths');
+const { DATA_DIR, readJson, writeJson, loadConfig } = require('./paths');
 
 const APP_ROOT = path.join(__dirname, '..', '..');
 const PKG = readJson(path.join(APP_ROOT, 'package.json'), {});
@@ -37,20 +39,32 @@ function newer(a, b) {
     return false;
 }
 
+// Read each time, so a token added to config.json works without a restart.
+const token = () => process.env.MARKET_UPDATE_TOKEN || loadConfig().updateToken || '';
+function githubHeaders() {
+    const h = { Accept: 'application/vnd.github+json', 'User-Agent': 'Market' };
+    if (token()) h.Authorization = `Bearer ${token()}`;
+    return h;
+}
+
 let latest = null; // { version, tag, notes, url, publishedAt }
 let checkedAt = 0;
 let checkError = '';
+let notFound = false; // GitHub said 404: no releases yet, or a private repo without a token
 let exitForUpdate = null;
 
 async function check() {
     if (!REPO) return;
     try {
         const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
-            headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Market' },
+            headers: githubHeaders(),
             signal: AbortSignal.timeout(15000),
         });
-        if (res.status === 404) {
-            latest = null; // no releases yet, or the repo isn't public
+        notFound = res.status === 404;
+        if (notFound) {
+            latest = null;
+        } else if (res.status === 401) {
+            throw new Error('the update token was refused (expired or revoked?)');
         } else if (!res.ok) {
             throw new Error(`GitHub answered ${res.status}`);
         } else {
@@ -84,6 +98,8 @@ function status() {
         available: !!latest && newer(latest.version, VERSION),
         checkedAt,
         error: checkError,
+        notFound,
+        hasToken: !!token(),
         // Only start.js can apply an update; a backend started on its own can't restart itself.
         canApply: process.env.MARKET_SUPERVISED === '1' && !!exitForUpdate,
         last: state.last || null, // { from, to, ok, error, at } from the last update
@@ -108,14 +124,18 @@ function requestApply() {
 
 function run(cmd, args, opts = {}) {
     const r = spawnSync(cmd, args, { cwd: APP_ROOT, stdio: 'inherit', windowsHide: true, ...opts });
-    if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} failed${r.error ? `: ${r.error.message}` : ''}`);
+    // The arguments can hold the token, so they stay out of the message.
+    if (r.status !== 0)
+        throw new Error(`${path.basename(cmd)} failed${r.error ? `: ${r.error.message}` : ` (exit ${r.status})`}`);
 }
 
 async function downloadRelease(tag, log) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'market-update-'));
     try {
         log(`Downloading ${tag}…`);
-        const res = await fetch(`https://codeload.github.com/${REPO}/tar.gz/refs/tags/${encodeURIComponent(tag)}`, {
+        // The API redirects to a short-lived download link, which also works for private repos.
+        const res = await fetch(`https://api.github.com/repos/${REPO}/tarball/${encodeURIComponent(tag)}`, {
+            headers: githubHeaders(),
             signal: AbortSignal.timeout(5 * 60 * 1000),
         });
         if (!res.ok) throw new Error(`Download failed (${res.status})`);
@@ -145,7 +165,19 @@ async function applyPending(log = console.log) {
         if (!REPO) throw new Error('package.json has no GitHub repository');
         if (fs.existsSync(path.join(APP_ROOT, '.git'))) {
             log(`Fetching ${tag} with git…`);
-            run('git', ['fetch', '--force', `https://github.com/${REPO}.git`, `refs/tags/${tag}:refs/tags/${tag}`]);
+            const auth = token()
+                ? [
+                      '-c',
+                      `http.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:${token()}`).toString('base64')}`,
+                  ]
+                : [];
+            run('git', [
+                ...auth,
+                'fetch',
+                '--force',
+                `https://github.com/${REPO}.git`,
+                `refs/tags/${tag}:refs/tags/${tag}`,
+            ]);
             run('git', ['merge', '--ff-only', tag]);
         } else {
             await downloadRelease(tag, log);

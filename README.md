@@ -148,6 +148,20 @@ Market checks for a new version every few hours. When there's one, a banner show
 
 Updating needs Market to have been started with `npm start` (or Start with Windows). If you installed with `git clone`, Market fast-forwards to the new release's tag, so keep your own changes on a separate branch.
 
+### Updates from a private repo
+
+GitHub only shows a private repo's releases to someone with access, so each install needs a read-only token:
+
+1. On GitHub, open **Settings → Developer settings → Fine-grained tokens → Generate new token**.
+2. Set **Resource owner** to the organisation, **Repository access** to *Only select repositories* → this repo, and under **Permissions** give **Contents** *Read-only*. Nothing else.
+3. Put it in `config.json` in Market's data folder (`%APPDATA%Market`, **Setup → Data folder**), creating the file if needed:
+
+   ```json
+   { "updateToken": "github_pat_…" }
+   ```
+
+Market picks it up at its next check (**Setup → Check for updates** to check now). The token can only read this repo's code, which the install already has. Don't commit it to the repo. If the organisation requires approval for fine-grained tokens, an owner approves it under **Organisation settings → Personal access tokens**. Tokens expire, so make a new one before the date you chose; Setup says when the token is refused.
+
 ### Publishing an update
 
 Push to `main`. The Release workflow bumps the patch version (2.0.1 → 2.0.2), commits that back to `main` as "Release v2.0.2", tags it and publishes a GitHub Release with notes made from the commits. Every Market install sees it within a few hours. Pushes that only change docs (`*.md`, LICENSE, NOTICE) or workflows don't make a release.

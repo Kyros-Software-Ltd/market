@@ -115,6 +115,8 @@ export interface UpdateInfo {
     available: boolean;
     checkedAt: number;
     error: string;
+    notFound: boolean; // no releases yet, or a private repo without a token
+    hasToken: boolean;
     canApply: boolean;
     last: { from: string; to: string; ok: boolean; error: string; at: number } | null;
 }

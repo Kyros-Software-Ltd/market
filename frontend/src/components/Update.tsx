@@ -113,7 +113,9 @@ export function VersionRow() {
           ? `${info.latest.version} is available`
           : info.latest
             ? 'Up to date'
-            : 'No releases published yet';
+            : info.notFound && !info.hasToken
+              ? 'No releases found. If the repo is private, add "updateToken" to config.json in the data folder.'
+              : 'No releases published yet';
 
     return (
         <div className="row">
