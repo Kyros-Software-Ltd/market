@@ -3,7 +3,7 @@ name = "market-anisette"
 version = "0.1.0"
 edition = "2024"
 description = "Gets Apple anisette headers from iCloud for Windows' AOSKit.dll, for market-sideload. 32-bit, like AOSKit."
-license = "Apache-2.0"
+license = "CC-BY-NC-4.0"
 publish = false
 
 [dependencies]

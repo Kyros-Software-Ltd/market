@@ -3,7 +3,7 @@ name = "market-sideload"
 version = "0.1.0"
 edition = "2024"
 description = "Signs and installs WDA.ipa on iPhones with a free Apple ID, for Market. Built on isideload."
-license = "Apache-2.0"
+license = "CC-BY-NC-4.0"
 publish = false
 
 [dependencies]

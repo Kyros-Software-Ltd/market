@@ -185,9 +185,9 @@ git push --follow-tags
 
 ## License
 
-Market is licensed under the [Apache License 2.0](LICENSE). Copyright 2026 Kyros Software Ltd.
+Market is licensed under [Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](LICENSE). Copyright 2026 Kyros Software Ltd.
 
-You can use, change and share it, including commercially, as long as you keep the copyright notices and the [NOTICE](NOTICE) file and say what you changed. It comes with no warranty, and Kyros Software Ltd isn't liable for how it's used.
+You can use, change and share it for non-commercial purposes, as long as you give credit, keep the [NOTICE](NOTICE) file and say what you changed. You can't use it commercially without separate permission from Kyros Software Ltd. It comes with no warranty, and Kyros Software Ltd isn't liable for how it's used.
 
 The name "Market" and its logo aren't covered by the license. If you publish a fork, give it a different name and logo, and don't present it as the official Market.
 
