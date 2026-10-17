@@ -40,6 +40,17 @@ function createApp() {
     runner.registerBuiltin(media.sendAutomation);
 
     const app = express();
+    // Only answer requests addressed to this PC (localhost, 127.0.0.1, ::1). A website can point its own
+    // domain at 127.0.0.1 (DNS rebinding) and then talk to this API from your browser; its Host header
+    // gives it away.
+    app.use((req, res, next) => {
+        let hostname = '';
+        try {
+            hostname = new URL(`http://${req.headers.host || ''}`).hostname;
+        } catch {}
+        if (['localhost', '127.0.0.1', '[::1]'].includes(hostname)) return next();
+        res.status(403).json({ error: 'Market only answers requests to localhost.' });
+    });
     app.use(express.json({ limit: '2mb' }));
 
     // Wrap async handlers so thrown errors become JSON responses.

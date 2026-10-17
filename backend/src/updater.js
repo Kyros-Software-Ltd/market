@@ -247,7 +247,8 @@ async function updatePackage(expectedSha, log) {
     if (!res.ok) throw new Error(`Download failed (${res.status})`);
     const zip = Buffer.from(await res.arrayBuffer());
     const sha = crypto.createHash('sha256').update(zip).digest('hex');
-    if (expectedSha && sha !== expectedSha) throw new Error("The download didn't match its checksum. Try again.");
+    if (!expectedSha) throw new Error("AffRev didn't send a checksum for this update, so it wasn't installed.");
+    if (sha !== expectedSha) throw new Error("The download didn't match its checksum. Try again.");
 
     fs.rmSync(NEW_DIR, { recursive: true, force: true });
     fs.mkdirSync(NEW_DIR);
