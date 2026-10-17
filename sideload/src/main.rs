@@ -10,7 +10,7 @@
 //!   market-sideload login   --apple-id <email> --data <dir> [--anisette <url>] [--remember]
 //!   market-sideload install --apple-id <email> --data <dir> --ipa <file> --udid <udid> [--anisette <url>] [--remember]
 //!   market-sideload forget  --apple-id <email>
-//!   market-sideload inspect --ipa <file>           shows the bundle IDs after the PlugIns fix (no Apple sign-in)
+//!   market-sideload inspect --ipa <file>           shows the app's bundle IDs (no Apple sign-in)
 //!
 //! Sign-in uses anisette from iCloud for Windows (local_anisette.rs, via the 32-bit market-anisette
 //! helper next to this program) when it's there, otherwise the anisette server; --anisette-source
@@ -179,37 +179,6 @@ fn bundle_id(info: &Path) -> Result<(plist::Dictionary, String), String> {
     Ok((dict, id))
 }
 
-/// isideload needs every bundle in PlugIns to be named under the app's own ID. WebDriverAgent's
-/// test bundle (com.facebook.WebDriverAgentRunner) isn't, so rename it under the runner's ID.
-fn fix_plugin_ids(app: &Path) -> Result<(), String> {
-    let (_, main_id) = bundle_id(&app.join("Info.plist"))?;
-    let Ok(plugins) = std::fs::read_dir(app.join("PlugIns")) else {
-        return Ok(());
-    };
-    for plugin in plugins.filter_map(Result::ok).map(|e| e.path()) {
-        let info = plugin.join("Info.plist");
-        if !info.exists() {
-            continue;
-        }
-        let (mut dict, id) = bundle_id(&info)?;
-        if id.starts_with(&format!("{main_id}.")) {
-            continue;
-        }
-        let suffix = plugin
-            .extension()
-            .and_then(|x| x.to_str())
-            .unwrap_or("plugin");
-        dict.insert(
-            "CFBundleIdentifier".into(),
-            format!("{main_id}.{suffix}").into(),
-        );
-        plist::Value::Dictionary(dict)
-            .to_file_xml(&info)
-            .map_err(|e| format!("Can't write {}: {e}", info.display()))?;
-    }
-    Ok(())
-}
-
 fn need(flags: &HashMap<String, String>, key: &str) -> String {
     flags
         .get(key)
@@ -326,7 +295,6 @@ async fn install(flags: HashMap<String, String>) {
     status("Preparing the app…");
     let work = std::env::temp_dir().join(format!("market-sideload-{}", std::process::id()));
     let app = unpack(&ipa, &work).unwrap_or_else(|e| fail(e));
-    fix_plugin_ids(&app).unwrap_or_else(|e| fail(e));
     let (_, main_id) = bundle_id(&app.join("Info.plist")).unwrap_or_else(|e| fail(e));
 
     status("Connecting to the phone…");
@@ -390,7 +358,6 @@ async fn main() {
             let work = std::env::temp_dir().join(format!("market-sideload-{}", std::process::id()));
             let app =
                 unpack(&PathBuf::from(need(&flags, "ipa")), &work).unwrap_or_else(|e| fail(e));
-            fix_plugin_ids(&app).unwrap_or_else(|e| fail(e));
             let mut ids = vec![
                 bundle_id(&app.join("Info.plist"))
                     .unwrap_or_else(|e| fail(e))

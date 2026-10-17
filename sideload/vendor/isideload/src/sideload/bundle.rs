@@ -47,7 +47,7 @@ impl Bundle {
 
         // Load app extensions from PlugIns directory
         let plug_ins_dir = bundle_path.join("PlugIns");
-        let app_extensions = if isideload_vfs::fs::metadata(&plug_ins_dir).is_ok() {
+        let plug_ins: Vec<Bundle> = if isideload_vfs::fs::metadata(&plug_ins_dir).is_ok() {
             isideload_vfs::fs::read_dir(&plug_ins_dir)
                 .context(SideloadError::InvalidBundle(
                     "Failed to read PlugIns directory".to_string(),
@@ -62,10 +62,16 @@ impl Bundle {
         } else {
             Vec::new()
         };
+        // Market: only real app extensions (.appex) get app IDs and profiles. Other PlugIns, such
+        // as a UI test runner's .xctest, are loaded into the app, so they're only signed, like
+        // frameworks, and keep their own bundle IDs.
+        let (app_extensions, loadable_plug_ins): (Vec<Bundle>, Vec<Bundle>) = plug_ins
+            .into_iter()
+            .partition(|b| b.bundle_dir.extension().is_some_and(|ext| ext == "appex"));
 
         // Load frameworks from Frameworks directory
         let frameworks_dir = bundle_path.join("Frameworks");
-        let frameworks = if isideload_vfs::fs::metadata(&frameworks_dir).is_ok() {
+        let mut frameworks: Vec<Bundle> = if isideload_vfs::fs::metadata(&frameworks_dir).is_ok() {
             isideload_vfs::fs::read_dir(&frameworks_dir)
                 .context(SideloadError::InvalidBundle(
                     "Failed to read Frameworks directory".to_string(),
@@ -80,6 +86,7 @@ impl Bundle {
         } else {
             Vec::new()
         };
+        frameworks.extend(loadable_plug_ins);
 
         // Find all .dylib files in the bundle directory (recursive)
         let libraries = find_dylibs(&bundle_path, &bundle_path)?;
