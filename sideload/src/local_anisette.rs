@@ -3,8 +3,9 @@
 //! machine ID and one-time password. Apple has been refusing many sign-ins that use the public
 //! anisette servers since October 2026, but accepts these.
 //!
-//! The rest of the identity follows AltServer: a device ID kept per PC, the local user ID derived
-//! from it, a Mac serial and Xcode's client description.
+//! The data really comes from iCloud for Windows, so the client is described as that (the same
+//! description the anisette servers use), with a device ID kept per PC and the local user ID
+//! derived from it, as AltServer does.
 
 use std::{
     path::{Path, PathBuf},
@@ -18,9 +19,9 @@ use isideload::{
 };
 use rootcause::{Report, prelude::*};
 
-const CLIENT_INFO: &str = "<MacBookPro15,1> <Mac OS X;10.15.2;19C57> <com.apple.AuthKit/1 (com.apple.dt.Xcode/3594.4.19)>";
-const USER_AGENT: &str = "Xcode";
-const SERIAL: &str = "C02LKHBBFD57";
+const CLIENT_INFO: &str =
+    "<PC> <Windows;6.2(0,0);9200> <com.apple.AuthKit/1 (com.apple.iCloud/7.21)>";
+const USER_AGENT: &str = "akd/1.0 CFNetwork/808.1.4";
 const ROUTING_INFO: &str = "17106176";
 
 pub struct LocalAnisette {
@@ -92,7 +93,6 @@ impl AnisetteProvider for LocalAnisette {
                 BASE64_STANDARD.encode(&self.device_id),
             ),
             ("X-Apple-I-MD-RINFO".to_string(), ROUTING_INFO.to_string()),
-            ("X-Apple-I-SRL-NO".to_string(), SERIAL.to_string()),
             ("X-Apple-I-Client-Time".to_string(), iso8601(now)),
             ("X-Apple-Locale".to_string(), "en_US".to_string()),
             ("X-Apple-I-TimeZone".to_string(), "UTC".to_string()),
