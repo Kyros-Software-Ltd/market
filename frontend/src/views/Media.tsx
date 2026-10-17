@@ -71,7 +71,6 @@ export function MediaPage() {
             <div className="page-head">
                 <div>
                     <h1>Media</h1>
-                    <p>Photos and videos on this PC. Send them to phones and they land in Photos, ready to post.</p>
                 </div>
                 <div className="actions">
                     <Button variant="ghost" onPress={() => act(() => post('/open-media-folder'))}>

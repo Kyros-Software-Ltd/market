@@ -1,6 +1,6 @@
 'use client';
 import { Button, Card } from '@heroui/react';
-import { Check as CheckIcon, Download, FolderOpen } from 'lucide-react';
+import { Cable, Check as CheckIcon, Download, FolderOpen, Smartphone, Wifi } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { AccountRow } from '@/components/Account';
 import { StatusBadge } from '@/components/common';
@@ -141,7 +141,6 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
             <div className="page-head">
                 <div>
                     <h1>Setup</h1>
-                    <p>Done once per phone. After that, just plug phones in.</p>
                 </div>
             </div>
 
@@ -192,26 +191,34 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
                     <div className="col" style={{ marginTop: 12, gap: 8 }}>
                         {status.devices.length ? (
                             status.devices.map((d) => (
-                                <Card key={d.udid} variant="secondary" className="panel">
-                                    <div className="row" style={{ padding: '9px 12px' }}>
-                                        <div className="grow col" style={{ gap: 2 }}>
-                                            <span style={{ fontWeight: 500 }}>
-                                                {d.name}{' '}
-                                                <span className="mono muted">
-                                                    {modelName(d.model)} · iOS {d.iosVersion}
+                                <div key={d.udid} className="setup-phone">
+                                    <div className="setup-phone-row">
+                                        <div className="setup-phone-icon">
+                                            <Smartphone size={18} />
+                                        </div>
+                                        <div className="setup-phone-info">
+                                            <div className="row" style={{ gap: 8 }}>
+                                                <span className="ellipsis" style={{ fontWeight: 600 }}>
+                                                    {d.name}
                                                 </span>
+                                                <StatusBadge device={d} />
+                                            </div>
+                                            <span className="mono muted ellipsis">
+                                                {modelName(d.model)} · iOS {d.iosVersion}
                                             </span>
-                                            <span className="small muted">{connectionText(d)}</span>
+                                            <span className="small dim row" style={{ gap: 6 }}>
+                                                {d.connection === 'wifi' ? <Wifi size={12} /> : <Cable size={12} />}
+                                                {connectionText(d)}
+                                            </span>
                                         </div>
                                         <ConnectionPicker device={d} />
-                                        <StatusBadge device={d} />
                                     </div>
                                     {d.status !== 'ready' && (
                                         <div style={{ borderTop: '1px solid var(--border)' }}>
                                             <PhoneState device={d} compact />
                                         </div>
                                     )}
-                                </Card>
+                                </div>
                             ))
                         ) : (
                             <span className="small muted">No phones connected yet.</span>

@@ -103,10 +103,6 @@ export function SchedulesPage() {
             <div className="page-head">
                 <div>
                     <h1>Schedules</h1>
-                    <p>
-                        Run automations at set times. Each phone starts at its own random moment inside the window. Keep
-                        Market running (it can live in the tray).
-                    </p>
                 </div>
             </div>
 

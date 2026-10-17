@@ -1,13 +1,12 @@
 'use client';
 import { Button, Card } from '@heroui/react';
-import { AppWindow, ArrowUp, Bot, Cable, Pencil, Plug, Power, PowerOff, Sun, Wifi } from 'lucide-react';
+import { AppWindow, ArrowUp, Bot, Pencil, Plug, Power, PowerOff, Sun } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Empty, FpsChip, StatusBadge } from '@/components/common';
 import { LiveScreen } from '@/components/LiveScreen';
 import { PhoneState } from '@/components/PhoneState';
 import { ActionMenu, Check, TextInput } from '@/components/ui';
 import { control, type Device, get, post } from '@/lib/api';
-import { modelName, renewText } from '@/lib/format';
 import { ClaudeCodeIcon, HomeIcon } from '@/lib/icons';
 import { useAction, useStore } from '@/lib/store';
 
@@ -34,7 +33,6 @@ export function PhonesPage() {
             <div className="page-head">
                 <div>
                     <h1>Phones</h1>
-                    <p>Click a phone to control it. Double-click a name to rename it.</p>
                 </div>
             </div>
 
@@ -98,7 +96,7 @@ function PhoneCard({ device: d }: { device: Device }) {
     const { status, selected, setSelected, setFocus, focus } = useStore();
     const act = useAction();
     const isSelected = selected.has(d.udid);
-    const live = d.status === 'ready' && !focus; // pause grid streams while one phone is open
+    const live = d.status === 'ready';
     const [fps, setFps] = useState<number | null>(null);
     const fresh = d.lastActivity && Date.now() - d.lastActivity.at < 6000 ? d.lastActivity : null;
     const job = status.jobs.find((j) => j.udid === d.udid && j.status === 'running');
@@ -120,7 +118,9 @@ function PhoneCard({ device: d }: { device: Device }) {
     }
 
     return (
-        <Card className={`panel phone ${isSelected ? 'selected' : ''} ${fresh?.actor === 'claude' ? 'claude' : ''}`}>
+        <Card
+            className={`panel phone ${isSelected ? 'selected' : ''} ${focus === d.udid ? 'focused' : ''} ${fresh?.actor === 'claude' ? 'claude' : ''}`}
+        >
             <div className="phone-head">
                 <Check isSelected={isSelected} isDisabled={d.status !== 'ready'} onChange={toggle} />
                 {draft === null ? (
@@ -161,6 +161,17 @@ function PhoneCard({ device: d }: { device: Device }) {
                     </div>
                 )}
                 <StatusBadge device={d} />
+                {d.online && (
+                    <Button
+                        isIconOnly
+                        size="sm"
+                        variant="ghost"
+                        aria-label={connected ? 'Disconnect' : 'Connect'}
+                        onPress={() => act(() => post(`/devices/${d.udid}/${connected ? 'disconnect' : 'connect'}`))}
+                    >
+                        {connected ? <PowerOff size={14} /> : <Power size={14} />}
+                    </Button>
+                )}
             </div>
             <div className="screen dark" data-theme="dark" onClick={() => setFocus(d.udid)}>
                 {live ? <LiveScreen udid={d.udid} onFps={setFps} /> : <PhoneState device={d} />}
@@ -176,32 +187,6 @@ function PhoneCard({ device: d }: { device: Device }) {
                         {fresh.actor === 'claude' ? <ClaudeCodeIcon /> : <Bot />}
                         <span className="ellipsis">{fresh.text}</span>
                     </div>
-                )}
-            </div>
-            <div className="phone-foot">
-                {d.connection && (
-                    <span
-                        className="muted"
-                        title={d.connection === 'wifi' ? 'Connected over Wi-Fi' : 'Connected by USB'}
-                        style={{ display: 'inline-flex' }}
-                    >
-                        {d.connection === 'wifi' ? <Wifi size={13} /> : <Cable size={13} />}
-                    </span>
-                )}
-                <span className="mono muted ellipsis grow">
-                    {modelName(d.model)} · iOS {d.iosVersion}
-                    {renewText(d) && ` · ${renewText(d)}`}
-                </span>
-                {d.online && (
-                    <Button
-                        isIconOnly
-                        size="sm"
-                        variant="ghost"
-                        aria-label={connected ? 'Disconnect' : 'Connect'}
-                        onPress={() => act(() => post(`/devices/${d.udid}/${connected ? 'disconnect' : 'connect'}`))}
-                    >
-                        {connected ? <PowerOff size={14} /> : <Power size={14} />}
-                    </Button>
                 )}
             </div>
         </Card>

@@ -6,6 +6,8 @@ import {
     Circle,
     CornerDownLeft,
     Lock,
+    PanelLeft,
+    PanelRight,
     Pencil,
     Square,
     Sun,
@@ -17,7 +19,7 @@ import {
 // you've held still for HOLD_MS), hold then drag = drag (moving an app icon), wheel = scroll. Can mirror to selected phones and record what you do as a flow.
 import { type MouseEvent as RMouseEvent, type WheelEvent as RWheelEvent, useEffect, useRef, useState } from 'react';
 import { control, get, post } from '@/lib/api';
-import { modelName, renewText, slug } from '@/lib/format';
+import { modelName, slug } from '@/lib/format';
 import { HomeIcon } from '@/lib/icons';
 import { useAction, useStore } from '@/lib/store';
 import { Feed, FpsChip, StatusBadge } from './common';
@@ -42,7 +44,26 @@ interface Press {
 const HOLD_MS = 500;
 const STILL_PX = 12; // a hand on a mouse wobbles a little; this much still counts as holding still
 
+// Which side the panel docks to; remembered between visits.
+function useDockSide() {
+    const [side, setSide] = useState<'left' | 'right'>('right');
+    useEffect(() => {
+        try {
+            if (localStorage.getItem('market.dock') === 'left') setSide('left');
+        } catch {}
+    }, []);
+    const flip = () => {
+        const next = side === 'right' ? 'left' : 'right';
+        setSide(next);
+        try {
+            localStorage.setItem('market.dock', next);
+        } catch {}
+    };
+    return [side, flip] as const;
+}
+
 export function PhoneControl({ udid }: { udid: string }) {
+    const [side, flipSide] = useDockSide();
     const { status, setFocus, selected, toast } = useStore();
     const act = useAction();
     const ask = usePrompt();
@@ -283,13 +304,8 @@ export function PhoneControl({ udid }: { udid: string }) {
     }
 
     return (
-        <div
-            className="sheet"
-            onMouseDown={(e) => {
-                if (e.target === e.currentTarget) close();
-            }}
-        >
-            <div className="sheet-body">
+        <aside className={`dock ${side}`}>
+            <div className="dock-body">
                 <div className="control-screen dark" data-theme="dark" ref={screenRef} onWheel={onWheel}>
                     {ready ? (
                         <LiveScreen
@@ -316,96 +332,60 @@ export function PhoneControl({ udid }: { udid: string }) {
                 </div>
 
                 <div className="control-side">
-                    <div className="row">
+                    <div className="dock-head">
                         <div className="grow">
                             <div className="row" style={{ gap: 4 }}>
-                                <h2 className="ellipsis" style={{ fontSize: 17, fontWeight: 600 }}>
-                                    {device.name}
-                                </h2>
+                                <h2 className="ellipsis">{device.name}</h2>
                                 <Button isIconOnly size="sm" variant="ghost" aria-label="Rename phone" onPress={rename}>
                                     <Pencil size={13} />
                                 </Button>
                             </div>
-                            <div className="mono muted">
+                            <div className="dock-sub">
                                 {modelName(device.model)} · iOS {device.iosVersion}
-                                {renewText(device) && ` · ${renewText(device)}`}
                             </div>
                         </div>
                         <StatusBadge device={device} />
+                        <Button
+                            isIconOnly
+                            size="sm"
+                            variant="ghost"
+                            aria-label={side === 'right' ? 'Move panel to the left' : 'Move panel to the right'}
+                            onPress={flipSide}
+                        >
+                            {side === 'right' ? <PanelLeft size={16} /> : <PanelRight size={16} />}
+                        </Button>
                         <Button isIconOnly size="sm" variant="ghost" aria-label="Close" onPress={close}>
                             <X size={16} />
                         </Button>
                     </div>
 
-                    <div className="row wrap">
-                        <Button size="sm" variant="secondary" onPress={() => send('home')} isDisabled={!ready}>
-                            <HomeIcon width={15} height={15} />
-                            Home
-                        </Button>
-                        <Button
-                            isIconOnly
-                            size="sm"
-                            variant="secondary"
-                            aria-label="Wake"
-                            onPress={() => send('unlock')}
-                            isDisabled={!ready}
-                        >
-                            <Sun size={15} />
-                        </Button>
-                        <Button
-                            isIconOnly
-                            size="sm"
-                            variant="secondary"
-                            aria-label="Lock"
-                            onPress={() => send('lock')}
-                            isDisabled={!ready}
-                        >
-                            <Lock size={15} />
-                        </Button>
-                        <Button
-                            isIconOnly
-                            size="sm"
-                            variant="secondary"
-                            aria-label="Volume down"
-                            onPress={() => send('volumeDown')}
-                            isDisabled={!ready}
-                        >
-                            <Volume1 size={15} />
-                        </Button>
-                        <Button
-                            isIconOnly
-                            size="sm"
-                            variant="secondary"
-                            aria-label="Volume up"
-                            onPress={() => send('volumeUp')}
-                            isDisabled={!ready}
-                        >
-                            <Volume2 size={15} />
-                        </Button>
-                        <Button
-                            isIconOnly
-                            size="sm"
-                            variant="secondary"
-                            aria-label="Screenshot"
-                            onPress={screenshot}
-                            isDisabled={!ready}
-                        >
-                            <Camera size={15} />
-                        </Button>
-                        <ActionMenu
-                            label="Open app"
-                            icon={<AppWindow size={15} />}
-                            isDisabled={!ready}
-                            items={apps.map((a) => ({ key: a.bundleId, label: a.name }))}
-                            onAction={(bundleId) => send('launch', { bundleId })}
-                        />
+                    <div className="quick-actions">
+                        {[
+                            { label: 'Home', icon: <HomeIcon width={16} height={16} />, run: () => send('home') },
+                            { label: 'Wake', icon: <Sun size={16} />, run: () => send('unlock') },
+                            { label: 'Lock', icon: <Lock size={16} />, run: () => send('lock') },
+                            { label: 'Volume down', icon: <Volume1 size={16} />, run: () => send('volumeDown') },
+                            { label: 'Volume up', icon: <Volume2 size={16} />, run: () => send('volumeUp') },
+                            { label: 'Screenshot', icon: <Camera size={16} />, run: screenshot },
+                        ].map((b) => (
+                            <Button
+                                key={b.label}
+                                isIconOnly
+                                variant="secondary"
+                                aria-label={b.label}
+                                onPress={b.run}
+                                isDisabled={!ready}
+                            >
+                                {b.icon}
+                            </Button>
+                        ))}
                     </div>
 
                     <div className="row">
                         <TextInput
                             value={text}
                             onChange={setText}
-                            placeholder="Type text, Enter to send"
+                            placeholder="Type on the phone…"
                             isDisabled={!ready}
                             onEnter={sendText}
                         />
@@ -420,55 +400,56 @@ export function PhoneControl({ udid }: { udid: string }) {
                         </Button>
                     </div>
 
-                    <Panel>
-                        <div className="col" style={{ gap: 12 }}>
+                    <div className="pair">
+                        <ActionMenu
+                            label="Open app"
+                            icon={<AppWindow size={15} />}
+                            isDisabled={!ready}
+                            items={apps.map((a) => ({ key: a.bundleId, label: a.name }))}
+                            onAction={(bundleId) => send('launch', { bundleId })}
+                        />
+
+                        {rec ? (
+                            <Button variant="danger-soft" fullWidth onPress={stopRecording}>
+                                <Square size={12} fill="currentColor" />
+                                Stop and save recording
+                            </Button>
+                        ) : (
+                            <Button
+                                variant="secondary"
+                                fullWidth
+                                onPress={() => setRec({ steps: [], last: Date.now() })}
+                                isDisabled={!ready}
+                            >
+                                <Circle size={12} fill="var(--red)" color="var(--red)" />
+                                Record
+                            </Button>
+                        )}
+                    </div>
+
+                    <details className="more">
+                        <summary>More</summary>
+                        <div className="col" style={{ gap: 16 }}>
                             <div className="row">
                                 <span className="grow">
-                                    Mirror to selected phones{' '}
-                                    <span className="mono muted">
-                                        ({[...selected].filter((u) => u !== udid).length})
-                                    </span>
+                                    Mirror to selected phones ({[...selected].filter((u) => u !== udid).length})
                                 </span>
                                 <Toggle isSelected={mirror} onChange={setMirror} label="Mirror to selected phones" />
                             </div>
-                            <div className="row">
-                                <span className="grow">
-                                    {rec ? 'Recording. Use the phone normally.' : 'Record what you do as an automation'}
-                                </span>
-                                {rec ? (
-                                    <Button size="sm" variant="danger-soft" onPress={stopRecording}>
-                                        <Square size={12} fill="currentColor" />
-                                        Stop & save
-                                    </Button>
-                                ) : (
-                                    <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        onPress={() => setRec({ steps: [], last: Date.now() })}
-                                        isDisabled={!ready}
-                                    >
-                                        <Circle size={12} fill="var(--red)" color="var(--red)" />
-                                        Record
-                                    </Button>
-                                )}
+                            <div>
+                                <div className="section-title">Recent activity</div>
+                                <Panel padded={false}>
+                                    <Feed items={mine} empty="Nothing yet." />
+                                </Panel>
+                            </div>
+                            <div>
+                                <div className="section-title">Connection log</div>
+                                <pre className="logs">{logs.join('\n')}</pre>
                             </div>
                         </div>
-                    </Panel>
-
-                    <div>
-                        <div className="section-title">Activity</div>
-                        <Panel padded={false}>
-                            <Feed items={mine} empty="Nothing yet." />
-                        </Panel>
-                    </div>
-                    <details>
-                        <summary className="section-title" style={{ cursor: 'pointer' }}>
-                            Connection log
-                        </summary>
-                        <pre className="logs">{logs.join('\n')}</pre>
                     </details>
                 </div>
             </div>
-        </div>
+        </aside>
     );
 }

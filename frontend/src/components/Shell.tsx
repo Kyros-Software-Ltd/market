@@ -114,20 +114,22 @@ function Frame({ children }: { children: ReactNode }) {
 
             <main>
                 <div className="page">
-                    <div className="page-inner">
-                        <UpdateNotice />
-                        {status.usbError && (
-                            <div className="notice">
-                                <CircleX />
-                                <span className="grow">
-                                    Windows can't talk to iPhones yet: the Apple USB driver is missing.
-                                </span>
-                                <Button size="sm" variant="secondary" onPress={() => go('setup')}>
-                                    Open setup
-                                </Button>
-                            </div>
-                        )}
-                        {children}
+                    <div className="page-scroll">
+                        <div className="page-inner" key={page}>
+                            <UpdateNotice />
+                            {status.usbError && (
+                                <div className="notice">
+                                    <CircleX />
+                                    <span className="grow">
+                                        Windows can't talk to iPhones yet: the Apple USB driver is missing.
+                                    </span>
+                                    <Button size="sm" variant="secondary" onPress={() => go('setup')}>
+                                        Open setup
+                                    </Button>
+                                </div>
+                            )}
+                            {children}
+                        </div>
                     </div>
                 </div>
             </main>

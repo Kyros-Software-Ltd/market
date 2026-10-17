@@ -47,10 +47,6 @@ export function ClaudePage() {
             <div className="page-head">
                 <div>
                     <h1>Claude</h1>
-                    <p>
-                        Claude can look at each screen, tap, swipe, type, open apps, send media, and build, run and
-                        schedule automations.
-                    </p>
                 </div>
             </div>
 

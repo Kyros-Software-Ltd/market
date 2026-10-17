@@ -104,7 +104,6 @@ export function AutomationsPage() {
             <div className="page-head">
                 <div>
                     <h1>Automations</h1>
-                    <p>Record one on a phone, write one as a flow, or ask Claude to build it.</p>
                 </div>
                 <div className="actions">
                     <Button variant="ghost" onPress={() => act(() => post('/open-folder', { which: 'automations' }))}>
@@ -119,60 +118,36 @@ export function AutomationsPage() {
             </div>
 
             <div className="grid-2" style={{ gridTemplateColumns: 'minmax(240px, 320px) minmax(0, 1fr)' }}>
-                <TableSection title="Library" icon={<FlowIcon width={14} height={14} />}>
+                <Panel title="Library" icon={<FlowIcon width={14} height={14} />} padded={false}>
                     {list.length ? (
-                        <Table>
-                            <Table.ScrollContainer>
-                                <Table.Content aria-label="Automations" onRowAction={(key) => setId(String(key))}>
-                                    <Table.Header>
-                                        <Table.Column isRowHeader>Automation</Table.Column>
-                                        <Table.Column>Kind</Table.Column>
-                                    </Table.Header>
-                                    <Table.Body>
-                                        {list.map((x) => (
-                                            <Table.Row
-                                                key={x.id}
-                                                id={x.id}
-                                                className={`clickable ${x.id === id ? 'active' : ''}`}
-                                            >
-                                                <Table.Cell>
-                                                    <div
-                                                        className="row"
-                                                        style={{ gap: 8, opacity: x.broken ? 0.5 : 1 }}
-                                                    >
-                                                        {x.kind === 'flow' ? (
-                                                            <FlowIcon width={14} height={14} className="muted" />
-                                                        ) : (
-                                                            <FileCode2 size={14} className="muted" />
-                                                        )}
-                                                        <div className="col" style={{ gap: 1, minWidth: 0 }}>
-                                                            <span className="ellipsis" style={{ fontWeight: 500 }}>
-                                                                {x.name}
-                                                            </span>
-                                                            {x.description && (
-                                                                <span
-                                                                    className="small muted ellipsis"
-                                                                    style={{ maxWidth: 200 }}
-                                                                >
-                                                                    {x.description}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </Table.Cell>
-                                                <Table.Cell>
-                                                    <span className="kind">{x.kind}</span>
-                                                </Table.Cell>
-                                            </Table.Row>
-                                        ))}
-                                    </Table.Body>
-                                </Table.Content>
-                            </Table.ScrollContainer>
-                        </Table>
+                        <div className="list">
+                            {list.map((x) => (
+                                <button
+                                    type="button"
+                                    key={x.id}
+                                    className={`list-item ${x.id === id ? 'active' : ''}`}
+                                    style={{ opacity: x.broken ? 0.5 : 1 }}
+                                    onClick={() => setId(x.id)}
+                                >
+                                    <span className="row" style={{ gap: 8 }}>
+                                        {x.kind === 'flow' ? (
+                                            <FlowIcon width={14} height={14} className="muted" />
+                                        ) : (
+                                            <FileCode2 size={14} className="muted" />
+                                        )}
+                                        <span className="ellipsis grow" style={{ fontWeight: 500 }}>
+                                            {x.name}
+                                        </span>
+                                        <span className="kind">{x.kind}</span>
+                                    </span>
+                                    {x.description && <span className="small muted ellipsis">{x.description}</span>}
+                                </button>
+                            ))}
+                        </div>
                     ) : (
-                        <EmptyCard icon={<FlowIcon />} title="No automations" />
+                        <Empty icon={<FlowIcon />} title="No automations" />
                     )}
-                </TableSection>
+                </Panel>
 
                 <div className="stack">
                     {a ? (

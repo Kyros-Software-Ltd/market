@@ -75,11 +75,6 @@ export function HomePage({ setup }: { setup: SetupInfo | null }) {
             <div className="page-head">
                 <div>
                     <h1>Home</h1>
-                    <p>
-                        {devices.length
-                            ? `${ready.length} of ${devices.length} phones ready${waiting.length ? `, ${waiting.length} need${waiting.length === 1 ? 's' : ''} attention` : ''}.`
-                            : 'Plug in a phone to get started.'}
-                    </p>
                 </div>
                 <div className="actions">
                     <Button variant="secondary" onPress={() => go('media')}>
