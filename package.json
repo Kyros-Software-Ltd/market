@@ -1,6 +1,6 @@
 {
     "name": "market",
-    "version": "2.0.12",
+    "version": "2.0.13",
     "private": true,
     "description": "Market: control, automate and let Claude drive your iPhones from Windows.",
     "repository": {
