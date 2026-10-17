@@ -204,19 +204,52 @@ function updateSource(tag, log) {
     run('git', ['merge', '--ff-only', tag]);
 }
 
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const sameFile = (a, b) => {
+    try {
+        const hash = (f) => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+        return fs.statSync(a).size === fs.statSync(b).size && hash(a) === hash(b);
+    } catch {
+        return false;
+    }
+};
+
+// Antivirus and other programs hold files open for a moment; Windows then refuses a rename with EPERM.
+function renameRetry(from, to) {
+    for (let i = 0; ; i++) {
+        try {
+            return fs.renameSync(from, to);
+        } catch (e) {
+            if (!['EPERM', 'EBUSY', 'EACCES'].includes(e.code) || i >= 6) throw e;
+            sleepSync(500 * (i + 1));
+        }
+    }
+}
+
 /** Moves the files in `from` over APP_ROOT, putting the replaced ones in OLD_DIR; undoes it all on failure. */
 function swapIn(from) {
     fs.mkdirSync(OLD_DIR, { recursive: true });
     const moved = []; // [path in APP_ROOT, its place in OLD_DIR]
     const placed = [];
-    const move = (src, dest) => {
+    const move = (src, dest, { keepIfSame = false } = {}) => {
         if (fs.existsSync(dest)) {
+            // A runtime file that didn't change (usually node.exe) can stay where it is, which also
+            // avoids fighting whatever has it open (Claude's phone tools run on it too).
+            if (keepIfSame && sameFile(src, dest)) return;
             const old = path.join(OLD_DIR, path.relative(APP_ROOT, dest));
             fs.mkdirSync(path.dirname(old), { recursive: true });
-            fs.renameSync(dest, old);
+            try {
+                renameRetry(dest, old);
+            } catch (e) {
+                if (['EPERM', 'EBUSY', 'EACCES'].includes(e.code))
+                    throw new Error(
+                        `${path.basename(dest)} is in use by another program. Close Market's other windows and Claude (its phone tools run on Market), then try again.`,
+                    );
+                throw e;
+            }
             moved.push([dest, old]);
         }
-        fs.renameSync(src, dest);
+        renameRetry(src, dest);
         placed.push(dest);
     };
     try {
@@ -225,7 +258,8 @@ function swapIn(from) {
             const dest = path.join(APP_ROOT, name);
             // The running node.exe can be renamed but not its folder, so the runtime goes file by file.
             if (name === 'runtime' && fs.existsSync(dest)) {
-                for (const file of fs.readdirSync(src)) move(path.join(src, file), path.join(dest, file));
+                for (const file of fs.readdirSync(src))
+                    move(path.join(src, file), path.join(dest, file), { keepIfSame: true });
             } else {
                 move(src, dest);
             }
