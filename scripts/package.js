@@ -98,7 +98,7 @@ if (zip.status !== 0) throw new Error('tar failed to write the zip');
 const data = fs.readFileSync(zipPath);
 const latest = {
     version: VERSION,
-    file: `releases/${zipName}`,
+    file: zipName, // the release asset AffRev serves
     size: data.length,
     sha256: crypto.createHash('sha256').update(data).digest('hex'),
     notes: process.env.RELEASE_NOTES || '',

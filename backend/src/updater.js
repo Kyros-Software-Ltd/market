@@ -56,7 +56,7 @@ function githubHeaders() {
     if (token()) h.Authorization = `Bearer ${token()}`;
     return h;
 }
-const affrevHeaders = () => ({ Authorization: `Bearer ${account.token()}`, 'User-Agent': 'Market' });
+const affrevHeaders = () => account.headers();
 
 let latest = null; // { version, tag, notes, url, publishedAt, sha256? }
 let checkedAt = 0;

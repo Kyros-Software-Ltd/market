@@ -15,9 +15,16 @@ const PACKAGED = fs.existsSync(path.join(__dirname, '..', '..', 'packaged.json')
 const REQUIRED = PACKAGED || process.env.MARKET_REQUIRE_SIGNIN === '1';
 const CHECK_EVERY = 3 * 60 * 60 * 1000;
 const OFFLINE_GRACE = 7 * 24 * 60 * 60 * 1000;
+const VERSION = readJson(path.join(__dirname, '..', '..', 'package.json'), {}).version || '';
 
 const affrevUrl = () => (loadConfig().affrevUrl || 'https://affrev.com').replace(/\/$/, '');
 const load = () => readJson(STATE_FILE, {}); // { token, user, verifiedAt }
+// Every call to AffRev says which version this PC runs, so AffRev can list who runs what.
+const headersFor = (token) => ({
+    Authorization: `Bearer ${token}`,
+    'User-Agent': 'Market',
+    'X-Market-Version': VERSION,
+});
 
 let pendingState = null;
 let checkError = '';
@@ -34,7 +41,7 @@ const isLoopback = (origin) => {
 /** Asks AffRev who a token belongs to. Throws with status 401 when it's been signed out. */
 async function whoAmI(token) {
     const res = await fetch(`${affrevUrl()}/api/market/me`, {
-        headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'Market' },
+        headers: headersFor(token),
         signal: AbortSignal.timeout(15000),
     });
     if (res.status === 401) throw Object.assign(new Error('This PC was signed out of AffRev.'), { status: 401 });
@@ -97,7 +104,7 @@ async function signOut() {
     if (!token) return;
     await fetch(`${affrevUrl()}/api/market/sign-out`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'Market' },
+        headers: headersFor(token),
         signal: AbortSignal.timeout(10000),
     }).catch(() => {});
 }
@@ -111,6 +118,7 @@ module.exports = {
     PACKAGED,
     affrevUrl,
     token: () => load().token || '',
+    headers: () => headersFor(load().token || ''),
     status,
     allowed,
     signInUrl,

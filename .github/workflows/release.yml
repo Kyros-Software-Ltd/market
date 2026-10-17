@@ -3,9 +3,9 @@
 # For a bigger jump, run npm version minor (or major) and git push --follow-tags yourself; a commit
 # that already carries its version's tag is released as it is.
 # Pushes made with the workflow's own token don't start workflows, so the bump commit doesn't loop.
-# The package job then builds the packaged Market (scripts/package.js) on Windows and uploads it to
-# AffRev's private R2 bucket, where every signed-in Market picks it up. It needs these repo secrets:
-# R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, MARKET_R2_BUCKET (skipped until they're set).
+# The package job then builds the packaged Market (scripts/package.js) on Windows and attaches the
+# zip and latest.json to the release. AffRev reads them with its own token and hands them out to
+# signed-in users, who never see this repo.
 name: Release
 
 on:
@@ -67,14 +67,7 @@ jobs:
         needs: release
         runs-on: windows-latest
         env:
-            R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-            AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-            AWS_DEFAULT_REGION: auto
-            # R2 doesn't accept the newer AWS CLI's default upload checksums.
-            AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-            AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
-            BUCKET: ${{ secrets.MARKET_R2_BUCKET }}
+            GH_TOKEN: ${{ github.token }}
             TAG: ${{ needs.release.outputs.tag }}
         defaults:
             run:
@@ -103,11 +96,9 @@ jobs:
                   export RELEASE_NOTES="$(git log --no-merges --pretty='- %s' ${previous:+$previous..}$TAG | grep -v '^- Release v' || true)"
                   ESBUILD="$RUNNER_TEMP/tools/node_modules/esbuild" node scripts/package.js
 
-            - name: Upload to AffRev
-              if: env.AWS_ACCESS_KEY_ID != '' && env.BUCKET != ''
+            - name: Attach to the release
               run: |
-                  endpoint="https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
                   version=$(node -p "require('./package.json').version")
-                  aws s3 cp "dist/market-$version.zip" "s3://$BUCKET/releases/market-$version.zip" --endpoint-url "$endpoint"
-                  # latest.json last, so Market never sees a version whose zip isn't up yet.
-                  aws s3 cp dist/latest.json "s3://$BUCKET/latest.json" --endpoint-url "$endpoint" --content-type application/json --cache-control no-store
+                  # latest.json last: AffRev only offers a release once it has both.
+                  gh release upload "$TAG" "dist/market-$version.zip" --clobber
+                  gh release upload "$TAG" dist/latest.json --clobber
