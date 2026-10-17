@@ -25,8 +25,14 @@ use std::{
 
 use idevice::usbmuxd::UsbmuxdAddr;
 use isideload::{
-    anisette::remote_v3::RemoteV3AnisetteProvider,
-    auth::apple_account::{AppleAccount, TwoFactorCallbackParams, TwoFactorCallbackResponse},
+    anisette::{
+        AnisetteClientInfo, AnisetteDataResponse, AnisetteProvider,
+        remote_v3::RemoteV3AnisetteProvider,
+    },
+    auth::{
+        apple_account::{AppleAccount, TwoFactorCallbackParams, TwoFactorCallbackResponse},
+        grandslam::GrandSlam,
+    },
     dev::developer_session::DeveloperSession,
     sideload::{SideloaderBuilder, TeamSelection, builder::MaxCertsBehavior},
     util::{callbacks::MaxCertsCallbackBox, fs_storage::FsStorage},
@@ -38,6 +44,41 @@ use tokio::{
 };
 
 const KEYRING_SERVICE: &str = "Market Apple ID";
+
+/// The public anisette servers compute their data with Apple's Android code (from Apple Music for
+/// Android) but describe the client as a Mac. Since Apple's October 2026 checks that mismatch gets
+/// sign-ins refused ("This action cannot be completed at this time", -80045), so describe the client
+/// as the Android device it really is. Opt-in with --client-info android: so far Apple answers that
+/// with 503 too, so the default keeps the server's own description.
+struct AndroidClientInfo(RemoteV3AnisetteProvider);
+
+#[async_trait::async_trait]
+impl AnisetteProvider for AndroidClientInfo {
+    async fn get_anisette_data(&self) -> Result<AnisetteDataResponse, rootcause::Report> {
+        self.0.get_anisette_data().await
+    }
+
+    async fn resync(&self, sim: &str) -> Result<AnisetteDataResponse, rootcause::Report> {
+        self.0.resync(sim).await
+    }
+
+    async fn get_client_info(&self) -> Result<AnisetteClientInfo, rootcause::Report> {
+        Ok(AnisetteClientInfo {
+            client_info:
+                "<Pixel 7> <Android;14;UQ1A.240205.002> <com.apple.AuthKit/1 (com.apple.akd/1.0)>"
+                    .to_string(),
+            user_agent: "akd/1.0 CFNetwork/808.1.4".to_string(),
+        })
+    }
+
+    async fn provision(
+        &mut self,
+        gs: &Arc<GrandSlam>,
+        force_reset: bool,
+    ) -> Result<(), rootcause::Report> {
+        self.0.provision(gs, force_reset).await
+    }
+}
 
 fn emit(value: Value) {
     let mut out = std::io::stdout().lock();
@@ -207,6 +248,20 @@ async fn sign_in(flags: &HashMap<String, String>) -> DeveloperSession {
     if let Some(url) = flags.get("anisette").filter(|u| !u.is_empty()) {
         anisette = anisette.set_url(url);
     }
+    let android = flags.get("client-info").is_some_and(|v| v == "android");
+    if android {
+        // Apple's provisioning service still wants the server's own (Mac) description, so set up
+        // this PC's anisette identity with that first; only the sign-in uses the Android one.
+        status("Preparing the sign-in…");
+        let info = anisette.get_client_info().await.unwrap_or_else(|e| fail(e));
+        let gs = GrandSlam::new(info, false, None)
+            .await
+            .unwrap_or_else(|e| fail(e));
+        anisette
+            .provision(&Arc::new(gs), false)
+            .await
+            .unwrap_or_else(|e| fail(format!("Couldn't set up the sign-in: {e}")));
+    }
 
     status("Signing in to Apple…");
     let two_factor = {
@@ -225,8 +280,13 @@ async fn sign_in(flags: &HashMap<String, String>) -> DeveloperSession {
             }
         }
     };
-    let mut account: AppleAccount = AppleAccount::builder(&apple_id)
-        .anisette_provider(anisette)
+    let builder = AppleAccount::builder(&apple_id);
+    let builder = if android {
+        builder.anisette_provider(AndroidClientInfo(anisette))
+    } else {
+        builder.anisette_provider(anisette)
+    };
+    let mut account: AppleAccount = builder
         .login(&password, two_factor)
         .await
         .unwrap_or_else(|e| fail(format!("Apple sign-in failed: {e}")));

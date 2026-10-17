@@ -7,11 +7,13 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+async-trait = "0.1.89"
 # Pinned: Apple's sign-in and signing details change between releases.
 isideload = { version = "=0.4.6", default-features = false, features = ["install", "fs-storage", "tokio-mt"] }
 idevice = { version = "0.1.61", default-features = false, features = ["usbmuxd"] }
 keyring = { version = "3.6.3", features = ["windows-native", "apple-native", "linux-native-sync-persistent"] }
 plist = "1.8"
+rootcause = "0.12.0"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde_json = "1"
 tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "io-std", "io-util", "sync"] }
