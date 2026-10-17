@@ -12,9 +12,15 @@
 //!   market-sideload forget  --apple-id <email>
 //!   market-sideload inspect --ipa <file>           shows the bundle IDs after the PlugIns fix (no Apple sign-in)
 //!
+//! Sign-in uses anisette from iCloud for Windows (local_anisette.rs, via the 32-bit market-anisette
+//! helper next to this program) when it's there, otherwise the anisette server; --anisette-source
+//! server forces the server.
+//!
 //! The phone is reached through usbmuxd at USBMUXD_SOCKET_ADDRESS (Market's proxy). The anisette
 //! state and the signing certificate are kept in --data; the password, when remembered, in the
 //! Windows Credential Manager.
+
+mod local_anisette;
 
 use std::{
     collections::HashMap,
@@ -37,6 +43,7 @@ use isideload::{
     sideload::{SideloaderBuilder, TeamSelection, builder::MaxCertsBehavior},
     util::{callbacks::MaxCertsCallbackBox, fs_storage::FsStorage},
 };
+use local_anisette::LocalAnisette;
 use serde_json::{Value, json};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
@@ -280,8 +287,18 @@ async fn sign_in(flags: &HashMap<String, String>) -> DeveloperSession {
             }
         }
     };
+    // Anisette from iCloud for Windows when it's installed (what Apple currently accepts), unless
+    // --anisette-source server asks for the anisette server instead.
+    let local = flags
+        .get("anisette-source")
+        .is_none_or(|v| v != "server")
+        .then(LocalAnisette::find_helper)
+        .flatten();
     let builder = AppleAccount::builder(&apple_id);
-    let builder = if android {
+    let builder = if let Some(exe) = local {
+        status("Signing in to Apple (with iCloud for Windows)…");
+        builder.anisette_provider(LocalAnisette::new(exe, &data).unwrap_or_else(|e| fail(e)))
+    } else if android {
         builder.anisette_provider(AndroidClientInfo(anisette))
     } else {
         builder.anisette_provider(anisette)

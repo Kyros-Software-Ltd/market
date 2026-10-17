@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 async-trait = "0.1.89"
+base64 = "0.22.1"
 # Pinned: Apple's sign-in and signing details change between releases.
 isideload = { version = "=0.4.6", default-features = false, features = ["install", "fs-storage", "tokio-mt"] }
 idevice = { version = "0.1.61", default-features = false, features = ["usbmuxd"] }
@@ -18,8 +19,14 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 serde_json = "1"
 tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "io-std", "io-util", "sync"] }
 tracing-subscriber = "0.3"
+uuid = { version = "1.20", features = ["v4"] }
 zip = { version = "8.3", default-features = false, features = ["deflate"] }
 
 [profile.release]
 strip = true
 lto = true
+
+# isideload 0.4.6 with one addition (AnisetteData::new and extra headers), so anisette from iCloud
+# for Windows can be used; see vendor/isideload and src/local_anisette.rs.
+[patch.crates-io]
+isideload = { path = "vendor/isideload" }

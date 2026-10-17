@@ -81,6 +81,9 @@ for (const ws of ['backend', 'frontend'])
 const helper = src('sideload/target/release/market-sideload.exe');
 if (fs.existsSync(helper)) copy(helper, dest('bin/market-sideload.exe'));
 else console.warn('No sideloading helper built; the package will need Sideloadly.');
+// Its 32-bit partner that gets anisette from iCloud for Windows.
+const anisette = src('sideload/anisette/target/i686-pc-windows-msvc/release/market-anisette.exe');
+if (fs.existsSync(anisette)) copy(anisette, dest('bin/market-anisette.exe'));
 
 // ---------- runtime and launcher ----------
 copy(process.execPath, dest('runtime', path.basename(process.execPath)));

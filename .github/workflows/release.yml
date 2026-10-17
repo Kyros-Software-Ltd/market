@@ -95,13 +95,20 @@ jobs:
                   npm prune --omit=dev
 
             - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: i686-pc-windows-msvc
 
             - uses: Swatinem/rust-cache@v2
               with:
-                  workspaces: sideload
+                  workspaces: |
+                      sideload
+                      sideload/anisette
 
-            - name: Build the sideloading helper
-              run: cargo build --release --manifest-path sideload/Cargo.toml
+            - name: Build the sideloading helpers
+              run: |
+                  cargo build --release --manifest-path sideload/Cargo.toml
+                  # iCloud's AOSKit.dll is 32-bit, so this one is too.
+                  cargo build --release --manifest-path sideload/anisette/Cargo.toml --target i686-pc-windows-msvc
 
             - name: Package
               run: |
