@@ -150,12 +150,16 @@ Updating needs Market to have been started with `npm start` (or Start with Windo
 
 ### Publishing an update
 
+Push to `main`. The Release workflow bumps the patch version (2.0.1 → 2.0.2), commits that back to `main` as "Release v2.0.2", tags it and publishes a GitHub Release with notes made from the commits. Every Market install sees it within a few hours. Pushes that only change docs (`*.md`, LICENSE, NOTICE) or workflows don't make a release.
+
+Because the workflow adds a commit to `main`, pull before you push again (GitHub Desktop asks you to fetch first).
+
+For a minor or major version, bump it yourself, and the workflow releases that commit as it is:
+
 ```bash
-npm version patch
+npm version minor
 git push --follow-tags
 ```
-
-`npm version` bumps the version in `package.json` and tags the commit (use `minor` or `major` for bigger changes). Pushing the tag runs the Release workflow, which publishes a GitHub Release with notes made from the commits. Every Market install sees it within a few hours.
 
 ## License
 
