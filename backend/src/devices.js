@@ -1,5 +1,5 @@
 // Finds iPhones on USB or Wi-Fi and gets each one to "ready" with no manual steps on the PC:
-//   trusted → control app present (you install it with Sideloadly) → Developer Mode on
+//   trusted → control app present (sideload.js installs it) → Developer Mode on
 //   → developer image mounted → WebDriverAgent running → live screen + touch.
 // When a step needs you to do something, the phone gets an "action" with plain
 // instructions, and the app keeps retrying until you've done it.
@@ -42,7 +42,7 @@ const ACTIONS = {
         new NeedsAction(
             'install',
             'Install the control app',
-            `${d.name} doesn't have the control app yet. Click Install to put it on with your Apple ID (sign in once in Setup), or use Sideloadly with WDA.ipa. This page carries on by itself once it's installed.`,
+            `${d.name} doesn't have the control app yet. Click Install to put it on with your Apple ID (sign in once in Setup). This page carries on by itself once it's installed.`,
         ),
     resign: (d) =>
         new NeedsAction(

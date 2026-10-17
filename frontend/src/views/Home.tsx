@@ -9,7 +9,7 @@ import { CalendarIcon, ClaudeCodeIcon, FlowIcon, FolderOpenIcon, PhoneIcon } fro
 import { useAction, useStore } from '@/lib/store';
 
 export function HomePage({ setup }: { setup: SetupInfo | null }) {
-    const { status, go, setFocus } = useStore();
+    const { status, go, setFocus, sideload } = useStore();
     const act = useAction();
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [media, setMedia] = useState<MediaItem[]>([]);
@@ -34,16 +34,11 @@ export function HomePage({ setup }: { setup: SetupInfo | null }) {
     const systemRows = [
         { part: 'USB driver', value: setup ? (setup.usbOk ? 'OK' : 'Missing') : '…', bad: !!setup && !setup.usbOk },
         {
-            part: 'Control app',
-            value: setup ? (setup.wdaIpa ? 'WDA.ipa ready' : 'Not built') : '…',
-            bad: !!setup && !setup.wdaIpa,
+            part: 'Apple ID',
+            value: sideload ? sideload.appleId || 'Not signed in' : '…',
+            bad: !!sideload && !sideload.appleId,
         },
         { part: 'iOS helper', value: setup?.helper || '…', bad: false },
-        {
-            part: 'Sideloadly',
-            value: setup ? (setup.sideloadly ? 'Installed' : 'Not found') : '…',
-            bad: !!setup && !setup.sideloadly,
-        },
     ];
 
     const stats = [

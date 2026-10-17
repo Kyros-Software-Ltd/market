@@ -1,4 +1,4 @@
-// Built-in sideloading, instead of Sideloadly: market-sideload (the Rust helper in sideload/, built
+// Sideloading: market-sideload (the Rust helper in sideload/, built
 // on isideload) signs WDA.ipa with the user's free Apple ID and installs it on a phone.
 // - Setup signs in once (2FA included) and the helper keeps the password in the Windows Credential
 //   Manager, so later installs and re-signs need nothing from you.
@@ -60,7 +60,7 @@ function status() {
 function explain(message) {
     if (!/cannot be completed at this time/i.test(message)) return message;
     fs.rmSync(path.join(WORK_DIR, 'anisette'), { recursive: true, force: true });
-    return 'Apple refused this sign-in (not a wrong password). Apple has been blocking some Apple IDs from sideloading tools since October; try again later, or try another spare Apple ID. Sideloadly still works meanwhile.';
+    return 'Apple refused this sign-in (not a wrong password). Apple has been blocking some Apple IDs from sideloading tools since October; try again later, or try another spare Apple ID.';
 }
 
 /** Runs the helper once. Resolves with its "done" event, rejects with its error. */

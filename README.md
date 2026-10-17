@@ -18,7 +18,7 @@ npm start
 The app opens on **Setup** and walks you through three things:
 
 1. **Apple USB driver.** If it's missing, the app links to the free **Apple Devices** app in the Microsoft Store (iTunes works too).
-2. **Control app.** Each phone runs a small control app (WebDriverAgent, shown on the phone as "Market"), signed with a **spare free Apple ID**. In Setup, sign in with that Apple ID once (Apple may ask for a 2FA code), then click **Install** on each phone's card; it takes about a minute per phone. Market signs in to Apple from your PC only and keeps the password in Windows' Credential Manager so it can re-sign the phones every week. You can still use [Sideloadly](https://sideloadly.io) instead: click **WDA.ipa** in Setup, then in Sideloadly pick the phone, type the Apple ID, drag `WDA.ipa` onto the IPA icon and click **Start**.
+2. **Control app.** Each phone runs a small control app (WebDriverAgent, shown on the phone as "Market"), signed with a **spare free Apple ID**. In Setup, sign in with that Apple ID once (Apple may ask for a 2FA code), then click **Install** on each phone's card; it takes about a minute per phone. Market signs in to Apple from your PC only and keeps the password in Windows' Credential Manager so it can re-sign the phones every week.
 3. **Phones.** Plug each one in with a data cable and unlock it. The app then:
    - asks the phone to trust the PC (tap **Trust**)
    - notices the control app and shows the Developer Mode switch, then tells you to turn it on (one restart)
@@ -27,7 +27,7 @@ The app opens on **Setup** and walks you through three things:
 
 Each step that needs you shows the exact steps on the phone's card. The app re-checks every few seconds, so it carries on as soon as you've done it.
 
-**After setup, you only need to plug the phones in.** A free Apple ID signature lasts 7 days. Each phone shows a countdown ("expires in 3d") that turns amber in the last day and a half. If you signed in with your Apple ID in Setup, Market re-signs plugged-in phones by itself a day before that. Otherwise click **Install** on the phone again (or re-sign it in Sideloadly). If one expires anyway, the card says so and the phone picks up again as soon as you re-sign it.
+**After setup, you only need to plug the phones in.** A free Apple ID signature lasts 7 days. Each phone shows a countdown ("expires in 3d") that turns amber in the last day and a half. If you signed in with your Apple ID in Setup, Market re-signs plugged-in phones by itself a day before that. Otherwise click **Install** on the phone again. If one expires anyway, the card says so and the phone picks up again as soon as you re-sign it.
 
 **Wi-Fi:** in **Setup → Phones**, set a phone to **USB + Wi-Fi** while it's plugged in. It then uses the cable when plugged in and Wi-Fi when not. Phones this PC already trusts that are on your Wi-Fi show under **Found on Wi-Fi**. A phone must be plugged in once to trust the PC (Apple's rule). The live view over Wi-Fi depends on the phone's signal: 5 GHz and the screen on work best.
 
@@ -43,7 +43,7 @@ Tips: on each phone, set **Auto-Lock → Never** and turn on **Do Not Disturb**.
 | **Automations** | Run scripts and flows on any phones, edit flows, and see the job history. |
 | **Schedules** | Run an automation every day at set times. Each phone starts at its own random moment. |
 | **Claude** | Connect Claude Desktop with one click, or copy the Claude Code command. A live feed shows everything Claude does. |
-| **Setup** | Apple driver, Sideloadly and WDA.ipa, each phone's progress, and Start with Windows. |
+| **Setup** | Apple driver, your Apple ID for the control app, each phone's progress, and Start with Windows. |
 
 ## Sending media
 
@@ -52,7 +52,7 @@ On the **Media** page, drop videos or photos in, select them, pick phones and cl
 1. copies the files over USB into the control app's folder (on the phone: **Files → On My iPhone → Market**)
 2. opens that folder in Files on the phone and uses **Share → Save Video / Save Image**, so the file lands in Photos
 
-Step 2 needs the control app built with file sharing on. If you installed `WDA.ipa` before version 1.1, click **WDA.ipa** in Setup and reinstall it once with Sideloadly. If step 2 can't finish, the job says so and the file is still waiting in Files for you to save. Turn **Save to Photos** off to only copy files into Files.
+Step 2 needs the control app built with file sharing on. If the control app on a phone is older than that, click **Reinstall** on its card once. If step 2 can't finish, the job says so and the file is still waiting in Files for you to save. Turn **Save to Photos** off to only copy files into Files.
 
 ## Claude
 
@@ -121,17 +121,17 @@ sideload/           market-sideload: signs and installs the control app with an 
 ```
 Dashboard (Next.js) ── Backend ── go-ios ── USB / Wi-Fi ── iPhone ── WebDriverAgent
       │                                          ▲
-Claude ┘ via backend/mcp/phones-mcp.js          Sideloadly installs it (free Apple ID)
+Claude ┘ via backend/mcp/phones-mcp.js          sideload/ installs it (free Apple ID)
 ```
 
 These open-source tools do the heavy lifting:
 
 - [go-ios](https://github.com/danielpaulus/go-ios) handles USB, the iOS 17+ tunnel, the developer image and starting WebDriverAgent.
 - [WebDriverAgent](https://github.com/appium/WebDriverAgent) streams the screen and performs touches. The app downloads it from Appium's releases and packages `WDA.ipa` with file sharing switched on.
-- [Sideloadly](https://sideloadly.io) (separate) signs `WDA.ipa` with your Apple ID, installs it and can refresh it automatically.
+- `sideload/` (Rust, built on [isideload](https://github.com/nab138/isideload)) signs `WDA.ipa` with your Apple ID and installs it; Market re-signs plugged-in phones every week. The Apple sign-in uses iCloud for Windows' own anisette data on your PC.
 - [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) copies media to the phones and mounts the developer image on iOS 17+ when go-ios can't. The app installs it the first time it's needed.
 
-Data lives in `%APPDATA%\Market`, moved over automatically from the old `Marketing Phones` folder: phone names, automations, schedules, job history, the media library, `WDA.ipa` and each phone's control-app countdown. The app never sees your Apple ID; only Sideloadly does.
+Data lives in `%APPDATA%\Market`, moved over automatically from the old `Marketing Phones` folder: phone names, automations, schedules, job history, the media library, `WDA.ipa` and each phone's control-app countdown. Your Apple ID password is kept in Windows' Credential Manager, never in the data folder.
 
 ## Development
 

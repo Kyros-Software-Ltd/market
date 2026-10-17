@@ -90,7 +90,6 @@ export interface Status {
 }
 
 export interface SetupInfo {
-    sideloadly: boolean;
     wdaIpa: boolean;
     wdaBuilding: string;
     wdaError: string;

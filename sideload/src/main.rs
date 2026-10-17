@@ -1,5 +1,5 @@
-//! market-sideload: signs WDA.ipa with a free Apple ID and installs it on an iPhone, so Market
-//! doesn't need Sideloadly. Built on isideload. Market (backend/src/sideload.js) runs it once per
+//! market-sideload: signs WDA.ipa with a free Apple ID and installs it on an iPhone. Built on
+//! isideload. Market (backend/src/sideload.js) runs it once per
 //! install and talks to it in JSON lines:
 //!   stdin   {"password": "..."}                   first line; "" uses the password saved with --remember
 //!           {"twoFactor": <TwoFactorCallbackResponse>}   each answer to a 2FA prompt

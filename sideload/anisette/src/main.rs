@@ -1,5 +1,5 @@
 //! market-anisette: asks iCloud for Windows for Apple's anisette headers (machine ID and one-time
-//! password), the way AltServer and Sideloadly do. Since October 2026 Apple refuses many sign-ins
+//! password), the way AltServer does. Since October 2026 Apple refuses many sign-ins
 //! that use the public anisette servers, but accepts these, made by Apple's own code on this PC.
 //!
 //! iCloud's AOSKit.dll is 32-bit only, so this is a separate 32-bit program

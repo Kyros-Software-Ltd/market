@@ -1,6 +1,6 @@
-// Tracks each phone's control app (WebDriverAgent), which you install with Sideloadly.
+// Tracks each phone's control app (WebDriverAgent), which sideload.js installs with your Apple ID.
 // A free Apple ID signature lasts 7 days, so remember when each install first started
-// working and count down from there. A fresh install or refresh from Sideloadly resets the clock.
+// working and count down from there. A fresh install or re-sign resets the clock.
 const path = require('node:path');
 const { DATA_DIR, readJson, writeJson } = require('./paths');
 

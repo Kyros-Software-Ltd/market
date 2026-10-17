@@ -27,17 +27,6 @@ function openPath(target) {
     run('explorer.exe', [target]);
 }
 
-/** Opens Explorer with the file selected. */
-function showItemInFolder(file) {
-    run('explorer.exe', [`/select,${file}`]);
-}
-
-/** Starts a program (e.g. Sideloadly) on its own. */
-function openProgram(exe) {
-    if (!fs.existsSync(exe)) throw new Error(`${exe} doesn't exist`);
-    spawn(exe, [], { cwd: path.dirname(exe), detached: true, stdio: 'ignore' }).unref();
-}
-
 function openAtLogin() {
     return fs.existsSync(STARTUP_FILE);
 }
@@ -56,4 +45,4 @@ function setOpenAtLogin(on) {
     fs.writeFileSync(STARTUP_FILE, vbs);
 }
 
-module.exports = { openPath, showItemInFolder, openProgram, openAtLogin, setOpenAtLogin, LAUNCHER };
+module.exports = { openPath, openAtLogin, setOpenAtLogin, LAUNCHER };

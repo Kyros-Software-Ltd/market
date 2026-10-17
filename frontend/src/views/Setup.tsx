@@ -1,6 +1,6 @@
 'use client';
 import { Button, Card } from '@heroui/react';
-import { Check as CheckIcon, Download, ExternalLink, FileDown, FolderOpen } from 'lucide-react';
+import { Check as CheckIcon, Download, FolderOpen } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { AccountRow } from '@/components/Account';
 import { StatusBadge } from '@/components/common';
@@ -115,7 +115,7 @@ function Step({ n, done, title, children }: { n: number; done: boolean; title: s
 // Opens a web page in the normal browser (the app hands window.open off to it).
 const openExternal = (url: string) => window.open(url, '_blank', 'noopener');
 
-export function SetupPage({ setup, reload }: { setup: SetupInfo | null; reload: () => void }) {
+export function SetupPage({ setup }: { setup: SetupInfo | null }) {
     const { status, sideload } = useStore();
     const act = useAction();
     const [openAtLogin, setOpenAtLogin] = useState<boolean | null>(null);
@@ -165,82 +165,22 @@ export function SetupPage({ setup, reload }: { setup: SetupInfo | null; reload: 
                     )}
                 </Step>
 
-                <Step
-                    n={2}
-                    done={(!!sideload?.appleId || (!!s?.sideloadly && !!s?.wdaIpa)) && phonesHaveApp}
-                    title="Control app"
-                >
+                <Step n={2} done={!!sideload?.appleId && phonesHaveApp} title="Control app">
                     <p className="dim">
                         Each phone runs a small control app (WebDriverAgent, shown as "Market"), signed with a spare
-                        free Apple ID.
-                        {sideload?.available
-                            ? ' Sign in here, then click Install on each phone; about a minute per phone.'
-                            : ' Install it with Sideloadly; about 2 minutes per phone.'}
+                        free Apple ID. Sign in here, then click Install on each phone; about a minute per phone.
+                        Plugged-in phones are re-signed by themselves before their 7 days run out.
                     </p>
-                    {sideload?.available && (
-                        <div className="mt-2.5">
+                    <div className="mt-2.5">
+                        {sideload?.available ? (
                             <AppleIdPanel />
-                        </div>
-                    )}
-                    {sideload?.available && <p className="small muted mt-2.5">Or use Sideloadly instead:</p>}
-                    <ol className="howto">
-                        <li>
-                            {s?.sideloadly ? (
-                                <span className="row">
-                                    Sideloadly installed{' '}
-                                    <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        onPress={() => act(() => post('/setup/open-sideloadly'))}
-                                    >
-                                        <ExternalLink size={14} />
-                                        Open
-                                    </Button>
-                                </span>
-                            ) : (
-                                <span className="row">
-                                    Install Sideloadly{' '}
-                                    <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        onPress={() => openExternal('https://sideloadly.io')}
-                                    >
-                                        <Download size={14} />
-                                        sideloadly.io
-                                    </Button>
-                                </span>
-                            )}
-                        </li>
-                        <li>
-                            <span className="row">
-                                Get the control app file
-                                <Button
-                                    size="sm"
-                                    variant="primary"
-                                    onPress={() =>
-                                        act(() => post('/setup/wda-ipa'), 'WDA.ipa is selected in Explorer').then(
-                                            reload,
-                                        )
-                                    }
-                                >
-                                    <FileDown size={14} />
-                                    WDA.ipa
-                                </Button>
-                                <span className="mono muted">
-                                    {s?.wdaBuilding || s?.wdaError || (s?.wdaIpa ? 'ready' : '')}
-                                </span>
+                        ) : (
+                            <span className="small" style={{ color: 'var(--red)' }}>
+                                This copy of Market is missing its sideloading helper. Download Market again from
+                                affrev.com.
                             </span>
-                        </li>
-                        <li>
-                            In Sideloadly pick the phone under <b>iDevice</b>, type the Apple ID, drag <b>WDA.ipa</b>{' '}
-                            onto the IPA icon and click <b>Start</b>.
-                        </li>
-                        <li>
-                            Turn on <b>automatic refresh</b> in Sideloadly's advanced options so the 7-day limit never
-                            bites.
-                        </li>
-                        <li>Done. Market notices the install and carries on with that phone by itself.</li>
-                    </ol>
+                        )}
+                    </div>
                 </Step>
 
                 <Step n={3} done={allReady} title="Phones">

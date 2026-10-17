@@ -1,4 +1,4 @@
-//! Anisette from iCloud for Windows, the way AltServer and Sideloadly sign in: market-anisette
+//! Anisette from iCloud for Windows, the way AltServer signs in: market-anisette
 //! (sideload/anisette, 32-bit like iCloud's AOSKit.dll) asks Apple's own code on this PC for the
 //! machine ID and one-time password. Apple has been refusing many sign-ins that use the public
 //! anisette servers since October 2026, but accepts these.

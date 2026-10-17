@@ -1,7 +1,7 @@
 // One-time setup the app does by itself:
 // - installs the pymobiledevice3 helper (needed to mount the developer image on iOS 17+)
 // - downloads WebDriverAgent (the control app that runs on each phone) from GitHub and
-//   packages it as WDA.ipa, which you install on each phone with Sideloadly
+//   packages it as WDA.ipa, which sideload.js signs and installs on each phone
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -234,7 +234,7 @@ async function buildWdaIpa() {
 }
 
 let buildingIpa = null;
-/** WDA.ipa, built once and reused (Sideloadly signs it for each phone). */
+/** WDA.ipa, built once and reused (sideload.js signs it for each phone). */
 function ensureWdaIpa() {
     if (wdaIpaCurrent()) return Promise.resolve(WDA_IPA);
     if (!buildingIpa)
@@ -244,24 +244,10 @@ function ensureWdaIpa() {
     return buildingIpa;
 }
 
-// ---------- Sideloadly ----------
-// Sideloadly (https://sideloadly.io) installs per user; check its usual spots.
-function sideloadlyPath() {
-    const local = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-    return (
-        [
-            path.join(local, 'Sideloadly', 'sideloadly.exe'),
-            path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Sideloadly', 'sideloadly.exe'),
-            path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Sideloadly', 'sideloadly.exe'),
-        ].find((p) => fs.existsSync(p)) || null
-    );
-}
-
 // ---------- status for the Setup tab ----------
 async function status() {
     if (state.helper === 'unknown') state.helper = (await findHelper()) ? 'ready' : 'missing';
     return {
-        sideloadly: !!sideloadlyPath(),
         wdaIpa: wdaIpaCurrent(),
         wdaBuilding: state.wda,
         wdaError: state.wdaError,
@@ -272,4 +258,4 @@ async function status() {
     };
 }
 
-module.exports = { ensureHelper, ensureWdaIpa, sideloadlyPath, status, WDA_IPA };
+module.exports = { ensureHelper, ensureWdaIpa, status, WDA_IPA };

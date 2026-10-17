@@ -321,7 +321,7 @@ function createApp() {
         }),
     );
 
-    // ---------- setup: USB driver, WDA.ipa + Sideloadly, helpers ----------
+    // ---------- setup: USB driver, control app, helpers ----------
     app.get(
         '/api/setup',
         api(async () => ({
@@ -329,15 +329,6 @@ function createApp() {
             usbOk: !devices.lastListError,
             usbError: devices.lastListError,
         })),
-    );
-    // Makes WDA.ipa (downloading it the first time) and shows it in Explorer, ready to drop into Sideloadly.
-    app.post(
-        '/api/setup/wda-ipa',
-        api(async () => {
-            const file = await setup.ensureWdaIpa();
-            desktop.showItemInFolder(file);
-            return { file };
-        }),
     );
     // Built-in sideloading with the user's Apple ID (see sideload.js).
     app.get(
@@ -366,14 +357,6 @@ function createApp() {
     app.post(
         '/api/sideload/cancel',
         api(() => sideload.cancel()),
-    );
-    app.post(
-        '/api/setup/open-sideloadly',
-        api(async () => {
-            const exe = setup.sideloadlyPath();
-            if (!exe) throw new Error("Sideloadly isn't installed yet. Use the download link above.");
-            desktop.openProgram(exe);
-        }),
     );
     app.get(
         '/api/settings',

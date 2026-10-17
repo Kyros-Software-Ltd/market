@@ -34,16 +34,16 @@ export function Shell({ children }: { children: ReactNode }) {
 }
 
 function Frame({ children }: { children: ReactNode }) {
-    const { page, go, status, connected, focus, setup } = useStore();
+    const { page, go, status, connected, focus, setup, sideload } = useStore();
 
     // Opening Market on Home before it's set up goes straight to Setup.
     const [firstRoute, setFirstRoute] = useState(false);
     useEffect(() => {
         if (setup && !firstRoute) {
             setFirstRoute(true);
-            if (page === 'home' && (!setup.usbOk || !setup.wdaIpa)) go('setup');
+            if (page === 'home' && (!setup.usbOk || (sideload && !sideload.appleId))) go('setup');
         }
-    }, [setup, firstRoute, go, page]);
+    }, [setup, sideload, firstRoute, go, page]);
 
     const ready = status.devices.filter((d) => d.status === 'ready').length;
     const running = status.jobs.filter((j) => j.status === 'running').length;

@@ -154,11 +154,9 @@ const sendAutomation = {
 
         const info = await helper(['container', ctx.device.udid, bundleId]);
         if (!info.fileSharing) {
-            ctx.log(
-                'To save into Photos automatically, reinstall the control app once with the new WDA.ipa (Setup → Get WDA.ipa).',
-            );
+            ctx.log('To save into Photos automatically, reinstall the control app once (Reinstall on the phone card).');
             throw new Error(
-                'Copied, but the control app is an older build without file sharing; reinstall WDA.ipa once with Sideloadly',
+                'Copied, but the control app is an older build without file sharing; reinstall it once from the phone card',
             );
         }
         for (const name of names) {

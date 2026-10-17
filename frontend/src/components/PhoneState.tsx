@@ -1,7 +1,7 @@
 'use client';
 // What a phone shows when it isn't streaming: progress, what you need to do, or the error.
 import { Button, Spinner } from '@heroui/react';
-import { ExternalLink, FileDown, RotateCw } from 'lucide-react';
+import { RotateCw } from 'lucide-react';
 import { type Device, post } from '@/lib/api';
 import { statusLabel } from '@/lib/format';
 import { useAction } from '@/lib/store';
@@ -27,30 +27,14 @@ export function PhoneState({ device, compact = false }: { device: Device; compac
         );
     }
     if (d.status === 'action' && d.action) {
-        const sideloadly = d.action.kind === 'install' || d.action.kind === 'resign';
+        const needsApp = d.action.kind === 'install' || d.action.kind === 'resign';
         return (
             <div className="screen-state warn" onClick={(e) => e.stopPropagation()}>
                 <h4>{d.action.title}</h4>
                 <p>{d.action.text}</p>
-                {sideloadly && (
+                {needsApp && (
                     <div className="col" style={{ alignItems: 'center', gap: 6 }}>
                         <SideloadButton device={d} />
-                    </div>
-                )}
-                {sideloadly && (
-                    <div className="row wrap" style={{ justifyContent: 'center' }}>
-                        <Button size="sm" variant="ghost" onPress={() => act(() => post('/setup/open-sideloadly'))}>
-                            <ExternalLink size={14} />
-                            Sideloadly
-                        </Button>
-                        <Button
-                            size="sm"
-                            variant="secondary"
-                            onPress={() => act(() => post('/setup/wda-ipa'), 'WDA.ipa is selected in Explorer')}
-                        >
-                            <FileDown size={14} />
-                            WDA.ipa
-                        </Button>
                     </div>
                 )}
                 <span className="mono muted small">re-checking automatically</span>
