@@ -54,6 +54,15 @@ function status() {
     };
 }
 
+// Apple turning the sign-in away as a whole (its vague "This action cannot be completed at this
+// time", error -80045) rather than the password. Since October 2026 it does this to some Apple IDs
+// signing in from sideloading tools; a fresh anisette identity sometimes gets through next time.
+function explain(message) {
+    if (!/cannot be completed at this time/i.test(message)) return message;
+    fs.rmSync(path.join(WORK_DIR, 'anisette'), { recursive: true, force: true });
+    return 'Apple refused this sign-in (not a wrong password). Apple has been blocking some Apple IDs from sideloading tools since October; try again later, or try another spare Apple ID. Sideloadly still works meanwhile.';
+}
+
 /** Runs the helper once. Resolves with its "done" event, rejects with its error. */
 function runHelper(kind, args, { password = '', udid = null } = {}) {
     const exe = helperPath();
@@ -97,7 +106,7 @@ function runHelper(kind, args, { password = '', udid = null } = {}) {
             job = null;
             if (result) return resolve(result);
             if (log.length) console.log(`[sideload] ${log.join('').slice(-2000)}`);
-            reject(new Error(failure || `The sideloading helper stopped (${code})`));
+            reject(new Error(explain(failure || `The sideloading helper stopped (${code})`)));
         });
     });
 }
