@@ -214,8 +214,8 @@ export function AutomationsPage() {
                                     <div className="col">
                                         <p className="small muted">
                                             JSON steps. Coordinates are fractions of the screen (0–1). Steps: launch,
-                                            terminate, tap, doubletap, longpress, swipe, scroll, tapText, waitForText,
-                                            type, home, wait, waitRandom, log. Add{' '}
+                                            terminate, tap, doubletap, longpress, swipe, drag, scroll, tapText,
+                                            waitForText, type, home, wait, waitRandom, log. Add{' '}
                                             <span className="mono">"chance": 0.3</span> to run a step only sometimes.
                                         </p>
                                         <TextBox value={editing} onChange={setEditing} rows={18} label="Flow steps" />

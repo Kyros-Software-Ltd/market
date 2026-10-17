@@ -65,6 +65,7 @@ function createContext(device, job, control) {
         openUrl: (url) => act('openUrl', { url }),
         swipe: (x1, y1, x2, y2, ms) => act('swipe', { x1, y1, x2, y2, ms, unit: 'pt' }),
         swipePct: (x1, y1, x2, y2, ms) => act('swipe', { x1, y1, x2, y2, ms }),
+        dragPct: (x1, y1, x2, y2, hold, ms) => act('drag', { x1, y1, x2, y2, hold, ms }),
 
         // A human-looking vertical scroll: jittered start/end points and speed.
         async scrollFeed(direction = 'up') {
@@ -145,6 +146,15 @@ const FLOW_STEPS = {
             jitter(s.x2, 0.015),
             jitter(s.y2, 0.015),
             (s.ms || 300) * rand(0.85, 1.15),
+        ),
+    drag: (ctx, s) =>
+        ctx.dragPct(
+            jitter(s.x1, 0.01),
+            jitter(s.y1, 0.01),
+            jitter(s.x2, 0.01),
+            jitter(s.y2, 0.01),
+            s.hold || 600,
+            (s.ms || 400) * rand(0.85, 1.15),
         ),
     scroll: (ctx, s) => ctx.scrollFeed(s.direction || 'up'),
     tapText: (ctx, s) => (s.optional ? ctx.tapTextIfPresent(s.text) : ctx.tapText(s.text)),

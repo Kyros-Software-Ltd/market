@@ -110,6 +110,7 @@ const ACTIONS = {
     tap: (w, b, pt) => w.tap(...pt(b.x, b.y)),
     longpress: (w, b, pt) => w.longPress(...pt(b.x, b.y), b.ms || 800),
     swipe: (w, b, pt) => w.swipe(...pt(b.x1, b.y1), ...pt(b.x2, b.y2), b.ms || 300),
+    drag: (w, b, pt) => w.drag(...pt(b.x1, b.y1), ...pt(b.x2, b.y2), b.hold || 600, b.ms || 400),
     doubletap: async (w, b, pt) => {
         const [x, y] = pt(b.x, b.y);
         await w.touch([
@@ -150,6 +151,8 @@ function describe(action, b, result) {
             return `double-tap ${n(b.x)}, ${n(b.y)}`;
         case 'longpress':
             return `long-press ${n(b.x)}, ${n(b.y)}`;
+        case 'drag':
+            return `hold and drag ${n(b.x1)}, ${n(b.y1)} to ${n(b.x2)}, ${n(b.y2)}`;
         case 'swipe':
             return `swipe ${b.y2 < b.y1 ? 'up' : b.y2 > b.y1 ? 'down' : b.x2 < b.x1 ? 'left' : 'right'}`;
         case 'tapText':

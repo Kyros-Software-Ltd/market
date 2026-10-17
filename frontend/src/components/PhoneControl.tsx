@@ -13,8 +13,8 @@ import {
     Volume2,
     X,
 } from 'lucide-react';
-// Full-size control of one phone: click = tap, drag = swipe, hold = long-press,
-// wheel = scroll. Can mirror to selected phones and record what you do as a flow.
+// Full-size control of one phone: click = tap, drag = swipe, hold = long-press (sent as soon as
+// you've held still for HOLD_MS), hold then drag = drag (moving an app icon), wheel = scroll. Can mirror to selected phones and record what you do as a flow.
 import { type MouseEvent as RMouseEvent, type WheelEvent as RWheelEvent, useEffect, useRef, useState } from 'react';
 import { control, get, post } from '@/lib/api';
 import { modelName, renewText, slug } from '@/lib/format';
@@ -33,7 +33,14 @@ interface Press {
     px: number;
     py: number;
     t: number;
+    held: boolean; // the long-press has gone to the phone
+    movedAt: number; // when the mouse left the start point, after the hold
+    timer: ReturnType<typeof setTimeout>;
+    ring: HTMLDivElement;
 }
+
+const HOLD_MS = 500;
+const STILL_PX = 12; // a hand on a mouse wobbles a little; this much still counts as holding still
 
 export function PhoneControl({ udid }: { udid: string }) {
     const { status, setFocus, selected, toast } = useStore();
@@ -93,6 +100,15 @@ export function PhoneControl({ udid }: { udid: string }) {
             tap: () => ({ do: 'tap', x: args.x, y: args.y }),
             longpress: () => ({ do: 'longpress', x: args.x, y: args.y, ms: args.ms }),
             swipe: () => ({ do: 'swipe', x1: args.x1, y1: args.y1, x2: args.x2, y2: args.y2, ms: args.ms }),
+            drag: () => ({
+                do: 'drag',
+                x1: args.x1,
+                y1: args.y1,
+                x2: args.x2,
+                y2: args.y2,
+                hold: args.hold,
+                ms: args.ms,
+            }),
             type: () => ({ do: 'type', text: args.text, ...(args.submit ? { submit: true } : {}) }),
             launch: () => ({ do: 'launch', bundleId: args.bundleId }),
             home: () => ({ do: 'home' }),
@@ -136,24 +152,72 @@ export function PhoneControl({ udid }: { udid: string }) {
         setTimeout(() => dot.remove(), 450);
     }
 
+    // A ring under the pointer that fills while you hold, so you can see a hold is coming.
+    function holdRing(e: RMouseEvent) {
+        const box = screenRef.current!.getBoundingClientRect();
+        const ring = document.createElement('div');
+        ring.className = 'hold-ring';
+        ring.style.left = `${e.clientX - box.left}px`;
+        ring.style.top = `${e.clientY - box.top}px`;
+        ring.style.animationDuration = `${HOLD_MS}ms`;
+        screenRef.current!.appendChild(ring);
+        return ring;
+    }
+
     function onDown(e: RMouseEvent) {
+        if (e.button !== 0) return;
         e.preventDefault();
-        press.current = { ...toFraction(e), px: e.clientX, py: e.clientY, t: Date.now() };
+        const start = toFraction(e);
+        const p: Press = {
+            ...start,
+            px: e.clientX,
+            py: e.clientY,
+            t: Date.now(),
+            held: false,
+            movedAt: 0,
+            ring: holdRing(e),
+            // Held still long enough: press on the phone now, while you're still holding.
+            timer: setTimeout(() => {
+                if (press.current !== p) return;
+                p.held = true;
+                p.ring.classList.add('held');
+                send('longpress', { x: start.x, y: start.y, ms: 800 });
+            }, HOLD_MS),
+        };
+        press.current = p;
+    }
+
+    function onMove(e: RMouseEvent) {
+        const p = press.current;
+        if (!p || Math.hypot(e.clientX - p.px, e.clientY - p.py) < STILL_PX) return;
+        if (!p.held) {
+            clearTimeout(p.timer); // moving before the hold makes it a swipe
+            p.ring.remove();
+        } else if (!p.movedAt) {
+            p.movedAt = Date.now();
+        }
     }
 
     function onUp(e: RMouseEvent) {
-        const start = press.current;
+        const p = press.current;
         press.current = null;
-        if (!start) return;
+        if (!p) return;
+        clearTimeout(p.timer);
+        p.ring.remove();
         ripple(e);
         const end = toFraction(e);
-        const moved = Math.hypot(e.clientX - start.px, e.clientY - start.py);
-        const held = Date.now() - start.t;
-        if (moved < 8) {
-            if (held > 600) send('longpress', { x: start.x, y: start.y, ms: held });
-            else send('tap', { x: start.x, y: start.y });
+        const moved = Math.hypot(e.clientX - p.px, e.clientY - p.py) >= STILL_PX;
+        const now = Date.now();
+        if (p.held) {
+            // The long-press already happened; dragging after it picks the thing up and moves it.
+            if (moved) {
+                const ms = Math.min(2000, Math.max(250, now - (p.movedAt || now)));
+                send('drag', { x1: p.x, y1: p.y, x2: end.x, y2: end.y, hold: 600, ms });
+            }
+        } else if (moved) {
+            send('swipe', { x1: p.x, y1: p.y, x2: end.x, y2: end.y, ms: Math.min(1000, Math.max(120, now - p.t)) });
         } else {
-            send('swipe', { x1: start.x, y1: start.y, x2: end.x, y2: end.y, ms: Math.min(1000, Math.max(120, held)) });
+            send('tap', { x: p.x, y: p.y });
         }
     }
 
@@ -233,6 +297,7 @@ export function PhoneControl({ udid }: { udid: string }) {
                             udid={device.udid}
                             onFps={setFps}
                             onMouseDown={onDown}
+                            onMouseMove={onMove}
                             onMouseUp={onUp}
                             onMouseLeave={(e) => {
                                 if (press.current) onUp(e);

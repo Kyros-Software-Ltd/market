@@ -478,7 +478,7 @@ const tools = [
         name: 'save_flow',
         description:
             'Create or overwrite a reusable step automation ("flow") that the app can run and schedule. Coordinates are FRACTIONS of the screen (0-1), not points, so the flow works on every phone. ' +
-            'Steps: {do:"launch",bundleId} {do:"terminate",bundleId} {do:"tap",x,y} {do:"doubletap",x,y} {do:"longpress",x,y,ms} {do:"swipe",x1,y1,x2,y2,ms} ' +
+            'Steps: {do:"launch",bundleId} {do:"terminate",bundleId} {do:"tap",x,y} {do:"doubletap",x,y} {do:"longpress",x,y,ms} {do:"swipe",x1,y1,x2,y2,ms} {do:"drag",x1,y1,x2,y2,hold,ms} ' +
             '{do:"scroll",direction:"up"|"down"} {do:"tapText",text,optional?} {do:"waitForText",text,timeoutMs} {do:"type",text,submit?} {do:"home"} ' +
             '{do:"wait",ms} {do:"waitRandom",minMs,maxMs} {do:"log",text}. Any step can have chance:0-1 to only run sometimes. Taps and waits are jittered automatically.',
         inputSchema: {

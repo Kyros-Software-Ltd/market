@@ -948,6 +948,32 @@ main {
     gap: 16px;
     overflow: auto;
 }
+.hold-ring {
+    position: absolute;
+    width: 44px;
+    height: 44px;
+    margin: -22px 0 0 -22px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.9);
+    pointer-events: none;
+    opacity: 0;
+    animation: mk-hold linear forwards;
+}
+.hold-ring.held {
+    border-color: #fff;
+    background: rgba(255, 255, 255, 0.18);
+}
+@keyframes mk-hold {
+    0%,
+    30% {
+        transform: scale(1.4);
+        opacity: 0;
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
 .ripple {
     position: absolute;
     width: 34px;

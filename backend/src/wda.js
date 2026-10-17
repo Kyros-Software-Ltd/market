@@ -142,6 +142,18 @@ class WDAClient {
         ]);
     }
 
+    // Press and hold, then move while still holding (moving an app icon, dragging a list item).
+    drag(x1, y1, x2, y2, holdMs = 600, durationMs = 400) {
+        return this.touch([
+            { type: 'pointerMove', duration: 0, x: Math.round(x1), y: Math.round(y1) },
+            { type: 'pointerDown', button: 0 },
+            { type: 'pause', duration: holdMs },
+            { type: 'pointerMove', duration: Math.round(durationMs), x: Math.round(x2), y: Math.round(y2) },
+            { type: 'pause', duration: 150 },
+            { type: 'pointerUp', button: 0 },
+        ]);
+    }
+
     swipe(x1, y1, x2, y2, durationMs = 300) {
         return this.touch([
             { type: 'pointerMove', duration: 0, x: Math.round(x1), y: Math.round(y1) },
