@@ -1,0 +1,11 @@
+node_modules/
+release/
+data/
+*.log
+*.ipa
+.venv/
+selfIdentity.plist
+devimages/
+frontend/.next/
+frontend/next-env.d.ts
+*.tsbuildinfo

@@ -1,0 +1,34 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "market",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/start.js",
+        "--hidden"
+      ],
+      "port": 4100
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "backend/src/index.js"
+      ],
+      "port": 4000
+    },
+    {
+      "name": "dashboard-only",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "node_modules/next/dist/bin/next",
+        "start",
+        "frontend",
+        "-p",
+        "4101"
+      ],
+      "port": 4101
+    }
+  ]
+}

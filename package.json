@@ -1,0 +1,29 @@
+{
+    "name": "market",
+    "version": "2.0.0",
+    "private": true,
+    "description": "Market: control, automate and let Claude drive your iPhones from Windows.",
+    "workspaces": [
+        "backend",
+        "frontend"
+    ],
+    "scripts": {
+        "start": "node scripts/start.js",
+        "dev": "node scripts/start.js --dev",
+        "build": "npm run build -w @market/frontend",
+        "typecheck": "npm run typecheck -w @market/frontend",
+        "backend": "npm start -w @market/backend",
+        "mcp": "npm run mcp -w @market/backend",
+        "format": "biome format --write .",
+        "lint": "biome lint .",
+        "check": "biome check --write ."
+    },
+    "engines": {
+        "node": ">=20"
+    },
+    "author": "Jacob",
+    "license": "Apache-2.0",
+    "devDependencies": {
+        "@biomejs/biome": "^2.5.15"
+    }
+}

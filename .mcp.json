@@ -1,0 +1,8 @@
+{
+    "mcpServers": {
+        "marketing-phones": {
+            "command": "node",
+            "args": ["backend/mcp/phones-mcp.js"]
+        }
+    }
+}

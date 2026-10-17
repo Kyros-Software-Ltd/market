@@ -1,0 +1,13 @@
+Market
+Copyright 2026 Kyros Software Ltd
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+Redistributions and derivative works must keep this NOTICE file and the
+copyright notices in the source, and must state any changes made.
+
+"Market", the Market logo and Kyros Software are trademarks of Kyros Software
+Ltd. The license does not grant permission to use them (Apache-2.0, section 6).
+Forks must use a different name and logo.
+
+This product includes the Inter typeface, licensed under the SIL Open Font
+License 1.1 (see frontend/public/fonts/Inter-LICENSE.txt).

@@ -1,0 +1,25 @@
+{
+    "port": 4000,
+
+    "wda": {
+        "bundleId": "com.facebook.WebDriverAgentRunner.xctrunner",
+        "testRunnerBundleId": "com.facebook.WebDriverAgentRunner.xctrunner",
+        "xctestConfig": "WebDriverAgentRunner.xctest",
+        "devicePort": 8100,
+        "mjpegDevicePort": 9100,
+        "mjpegFramerate": 30,
+        "mjpegScalingFactor": 60,
+        "mjpegQuality": 55
+    },
+
+    "localPorts": {
+        "wdaBase": 8100,
+        "mjpegBase": 9100
+    },
+
+    "usbmuxProxyPort": 27115,
+    "appleUsbmuxPort": 27015,
+
+    "startTunnel": true,
+    "autoConnect": true
+}
