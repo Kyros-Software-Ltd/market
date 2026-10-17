@@ -1,0 +1,23 @@
+[package]
+name = "market-sideload"
+version = "0.1.0"
+edition = "2024"
+description = "Signs and installs WDA.ipa on iPhones with a free Apple ID, for Market. Built on isideload."
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+# Pinned: Apple's sign-in and signing details change between releases.
+isideload = { version = "=0.4.6", default-features = false, features = ["install", "fs-storage", "tokio-mt"] }
+idevice = { version = "0.1.61", default-features = false, features = ["usbmuxd"] }
+keyring = { version = "3.6.3", features = ["windows-native", "apple-native", "linux-native-sync-persistent"] }
+plist = "1.8"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde_json = "1"
+tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "io-std", "io-util", "sync"] }
+tracing-subscriber = "0.3"
+zip = { version = "8.3", default-features = false, features = ["deflate"] }
+
+[profile.release]
+strip = true
+lto = true

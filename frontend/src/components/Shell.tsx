@@ -7,6 +7,7 @@ import { Toaster } from 'sonner';
 import { SignInGate } from '@/components/Account';
 import { PhoneControl } from '@/components/PhoneControl';
 import { PromptProvider } from '@/components/Prompt';
+import { TwoFactorDialog } from '@/components/Sideload';
 import { UpdateNotice, VersionTag } from '@/components/Update';
 import { CalendarIcon, ClaudeCodeIcon, FlowIcon, FolderOpenIcon, HomeIcon, PhoneIcon, SetupIcon } from '@/lib/icons';
 import { type Page, StoreProvider, useStore } from '@/lib/store';
@@ -132,6 +133,7 @@ function Frame({ children }: { children: ReactNode }) {
             </main>
 
             {focus && <PhoneControl udid={focus} />}
+            <TwoFactorDialog />
 
             <Toaster position="bottom-right" richColors closeButton duration={4500} />
         </div>

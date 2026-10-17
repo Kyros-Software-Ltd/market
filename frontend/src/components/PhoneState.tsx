@@ -5,6 +5,7 @@ import { ExternalLink, FileDown, RotateCw } from 'lucide-react';
 import { type Device, post } from '@/lib/api';
 import { statusLabel } from '@/lib/format';
 import { useAction } from '@/lib/store';
+import { SideloadButton } from './Sideload';
 
 export function PhoneState({ device, compact = false }: { device: Device; compact?: boolean }) {
     const act = useAction();
@@ -32,8 +33,13 @@ export function PhoneState({ device, compact = false }: { device: Device; compac
                 <h4>{d.action.title}</h4>
                 <p>{d.action.text}</p>
                 {sideloadly && (
+                    <div className="col" style={{ alignItems: 'center', gap: 6 }}>
+                        <SideloadButton device={d} />
+                    </div>
+                )}
+                {sideloadly && (
                     <div className="row wrap" style={{ justifyContent: 'center' }}>
-                        <Button size="sm" variant="primary" onPress={() => act(() => post('/setup/open-sideloadly'))}>
+                        <Button size="sm" variant="ghost" onPress={() => act(() => post('/setup/open-sideloadly'))}>
                             <ExternalLink size={14} />
                             Sideloadly
                         </Button>

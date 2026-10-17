@@ -77,6 +77,11 @@ copy(src('node_modules'), dest('node_modules'), skipPackage);
 for (const ws of ['backend', 'frontend'])
     if (fs.existsSync(src(ws, 'node_modules'))) copy(src(ws, 'node_modules'), dest(ws, 'node_modules'), skipPackage);
 
+// The sideloading helper (sideload/, built with cargo before this runs).
+const helper = src('sideload/target/release/market-sideload.exe');
+if (fs.existsSync(helper)) copy(helper, dest('bin/market-sideload.exe'));
+else console.warn('No sideloading helper built; the package will need Sideloadly.');
+
 // ---------- runtime and launcher ----------
 copy(process.execPath, dest('runtime', path.basename(process.execPath)));
 fs.writeFileSync(

@@ -29,6 +29,13 @@ function expired(udid) {
     writeJson(FILE, all);
 }
 
+/** Call after Market itself (re)signed and installed the control app: its 7 days start now. */
+function installed(udid, bundleId) {
+    const all = load();
+    all[udid] = { bundleId, since: Date.now() };
+    writeJson(FILE, all);
+}
+
 function info(udid) {
     const rec = load()[udid];
     if (!rec?.since || rec.expired) return { expiresAt: null, resignSoon: false };
@@ -36,4 +43,4 @@ function info(udid) {
     return { expiresAt, resignSoon: expiresAt - Date.now() < WARN_BEFORE_MS };
 }
 
-module.exports = { started, expired, info };
+module.exports = { started, expired, installed, info };

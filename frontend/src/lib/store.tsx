@@ -4,7 +4,7 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { toast as sonner } from 'sonner';
-import { get, type SetupInfo, type Status } from './api';
+import { get, type SetupInfo, type SideloadInfo, type Status } from './api';
 
 export type Page = 'home' | 'phones' | 'media' | 'automations' | 'schedules' | 'claude' | 'setup';
 
@@ -27,6 +27,8 @@ interface Store {
     refresh: () => void;
     setup: SetupInfo | null;
     reloadSetup: () => Promise<void>;
+    sideload: SideloadInfo | null;
+    reloadSideload: () => void;
     page: Page;
     go: (page: Page) => void;
     focus: string | null;
@@ -76,6 +78,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return () => clearInterval(t);
     }, [reloadSetup]);
 
+    // Built-in sideloading: polled often while something is running so progress and 2FA show quickly.
+    const [sideload, setSideload] = useState<SideloadInfo | null>(null);
+    const reloadSideload = useCallback(() => {
+        get<SideloadInfo>('/sideload')
+            .then(setSideload)
+            .catch(() => {});
+    }, []);
+    const sideloadBusy = !!sideload?.job || !!sideload?.queued.length;
+    useEffect(() => {
+        reloadSideload();
+        const t = setInterval(reloadSideload, sideloadBusy ? 1500 : 10000);
+        return () => clearInterval(t);
+    }, [reloadSideload, sideloadBusy]);
+
     // Drop selections for phones that are no longer ready.
     useEffect(() => {
         const ready = new Set(status.devices.filter((d) => d.status === 'ready').map((d) => d.udid));
@@ -97,6 +113,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             refresh,
             setup,
             reloadSetup,
+            sideload,
+            reloadSideload,
             page,
             go,
             focus,
@@ -105,7 +123,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             setSelected,
             toast,
         }),
-        [status, connected, refresh, setup, reloadSetup, page, go, focus, selected, toast],
+        [status, connected, refresh, setup, reloadSetup, sideload, reloadSideload, page, go, focus, selected, toast],
     );
 
     return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

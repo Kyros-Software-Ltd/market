@@ -94,6 +94,15 @@ jobs:
                   npm run build
                   npm prune --omit=dev
 
+            - uses: dtolnay/rust-toolchain@stable
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: sideload
+
+            - name: Build the sideloading helper
+              run: cargo build --release --manifest-path sideload/Cargo.toml
+
             - name: Package
               run: |
                   npm install --prefix "$RUNNER_TEMP/tools" --no-audit --no-fund esbuild@0.25.10

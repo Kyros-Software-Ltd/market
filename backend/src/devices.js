@@ -41,14 +41,14 @@ const ACTIONS = {
     install: (d) =>
         new NeedsAction(
             'install',
-            'Install the control app with Sideloadly',
-            `${d.name} doesn't have the control app yet. In Sideloadly, pick this phone, enter your Apple ID and drop in WDA.ipa (Setup has it). This page carries on by itself once it's installed.`,
+            'Install the control app',
+            `${d.name} doesn't have the control app yet. Click Install to put it on with your Apple ID (sign in once in Setup), or use Sideloadly with WDA.ipa. This page carries on by itself once it's installed.`,
         ),
     resign: (d) =>
         new NeedsAction(
             'resign',
-            'Re-sign the control app in Sideloadly',
-            `The control app on ${d.name} expired (free Apple IDs last 7 days). Install WDA.ipa on this phone again in Sideloadly (or turn on its auto-refresh); it picks up from there.`,
+            'Re-sign the control app',
+            `The control app on ${d.name} expired (free Apple IDs last 7 days). Click Install to re-sign it with your Apple ID; Market also does this by itself for plugged-in phones once you've signed in in Setup.`,
         ),
     devmode: (d) =>
         new NeedsAction(

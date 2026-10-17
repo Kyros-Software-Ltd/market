@@ -18,7 +18,7 @@ npm start
 The app opens on **Setup** and walks you through three things:
 
 1. **Apple USB driver.** If it's missing, the app links to the free **Apple Devices** app in the Microsoft Store (iTunes works too).
-2. **Control app, installed with Sideloadly.** Each phone runs a small control app (WebDriverAgent, shown on the phone as "Market"). Install [Sideloadly](https://sideloadly.io) (it needs the website versions of iTunes and iCloud, not the Microsoft Store ones). Click **WDA.ipa** in Setup. In Sideloadly, pick the phone, type a **spare free Apple ID**, drag `WDA.ipa` onto the IPA icon and click **Start**. It takes about 2 minutes per phone. Turn on **automatic refresh** in Sideloadly's advanced options so it re-signs the phones by itself.
+2. **Control app.** Each phone runs a small control app (WebDriverAgent, shown on the phone as "Market"), signed with a **spare free Apple ID**. In Setup, sign in with that Apple ID once (Apple may ask for a 2FA code), then click **Install** on each phone's card; it takes about a minute per phone. Market signs in to Apple from your PC only and keeps the password in Windows' Credential Manager so it can re-sign the phones every week. You can still use [Sideloadly](https://sideloadly.io) instead: click **WDA.ipa** in Setup, then in Sideloadly pick the phone, type the Apple ID, drag `WDA.ipa` onto the IPA icon and click **Start**.
 3. **Phones.** Plug each one in with a data cable and unlock it. The app then:
    - asks the phone to trust the PC (tap **Trust**)
    - notices the control app and shows the Developer Mode switch, then tells you to turn it on (one restart)
@@ -27,7 +27,7 @@ The app opens on **Setup** and walks you through three things:
 
 Each step that needs you shows the exact steps on the phone's card. The app re-checks every few seconds, so it carries on as soon as you've done it.
 
-**After setup, you only need to plug the phones in.** A free Apple ID signature lasts 7 days. Each phone shows a countdown ("expires in 3d") that turns amber in the last day and a half. With Sideloadly's automatic refresh on, it resets by itself. Otherwise reinstall `WDA.ipa` on that phone in Sideloadly. If one expires anyway, the card says so and the phone picks up again as soon as you re-sign it.
+**After setup, you only need to plug the phones in.** A free Apple ID signature lasts 7 days. Each phone shows a countdown ("expires in 3d") that turns amber in the last day and a half. If you signed in with your Apple ID in Setup, Market re-signs plugged-in phones by itself a day before that. Otherwise click **Install** on the phone again (or re-sign it in Sideloadly). If one expires anyway, the card says so and the phone picks up again as soon as you re-sign it.
 
 **Wi-Fi:** in **Setup → Phones**, set a phone to **USB + Wi-Fi** while it's plugged in. It then uses the cable when plugged in and Wi-Fi when not. Phones this PC already trusts that are on your Wi-Fi show under **Found on Wi-Fi**. A phone must be plugged in once to trust the PC (Apple's rule). The live view over Wi-Fi depends on the phone's signal: 5 GHz and the screen on work best.
 
@@ -112,6 +112,7 @@ frontend/           Dashboard: Next.js + HeroUI on :4100, /api proxied to the ba
   src/lib/          API client, app state, icons
 scripts/start.js    Starts both, opens the browser and applies updates
 scripts/package.js  Builds the packaged app (the zip on AffRev)
+sideload/           market-sideload: signs and installs the control app with an Apple ID (Rust, isideload)
 .github/workflows/  Release: publishes a GitHub Release for each version tag
 ```
 

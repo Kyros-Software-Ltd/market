@@ -11,3 +11,7 @@ Forks must use a different name and logo.
 
 This product includes the Inter typeface, licensed under the SIL Open Font
 License 1.1 (see frontend/public/fonts/Inter-LICENSE.txt).
+
+The sideloading helper (sideload/) is built on isideload by Nicholas Sharp,
+licensed under the MIT License (https://github.com/nab138/isideload), and on
+idevice and other open-source Rust crates under their own licenses.

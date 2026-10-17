@@ -10,6 +10,7 @@ const { DeviceManager } = require('./devices');
 const setup = require('./setup');
 const updater = require('./updater');
 const account = require('./account');
+const sideload = require('./sideload');
 const media = require('./media');
 const { Controller } = require('./control');
 const { AutomationRunner } = require('./automations');
@@ -338,6 +339,34 @@ function createApp() {
             return { file };
         }),
     );
+    // Built-in sideloading with the user's Apple ID (see sideload.js).
+    app.get(
+        '/api/sideload',
+        api(() => sideload.status()),
+    );
+    app.post(
+        '/api/sideload/sign-in',
+        api((req) => sideload.signIn(req.body.appleId, req.body.password)),
+    );
+    app.post(
+        '/api/sideload/sign-out',
+        api(() => sideload.signOut()),
+    );
+    app.post(
+        '/api/sideload/install',
+        api((req) => {
+            const udids = Array.isArray(req.body.udids) ? req.body.udids : [req.body.udid];
+            for (const udid of udids.filter(Boolean)) sideload.install(String(udid));
+        }),
+    );
+    app.post(
+        '/api/sideload/two-factor',
+        api((req) => sideload.answerTwoFactor(req.body.response)),
+    );
+    app.post(
+        '/api/sideload/cancel',
+        api(() => sideload.cancel()),
+    );
     app.post(
         '/api/setup/open-sideloadly',
         api(async () => {
@@ -489,6 +518,7 @@ async function start({ port = config.port } = {}) {
             ctx.devices.start();
             ctx.scheduler.start();
             account.start();
+            sideload.start(ctx.devices);
             updater.start();
             const shutdown = () => {
                 ctx.runner.stopAll();

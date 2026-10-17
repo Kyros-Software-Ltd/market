@@ -12,3 +12,4 @@ frontend/next-env.d.ts
 dist/
 .update-new/
 .update-old/
+sideload/target/

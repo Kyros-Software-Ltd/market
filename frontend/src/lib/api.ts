@@ -108,6 +108,30 @@ export interface ClaudeInfo {
     activity: Activity[];
 }
 
+/** Apple's 2FA question, as the sideloading helper passes it on. */
+export interface TwoFactorQuestion {
+    lastError: string | null;
+    unknown: boolean; // Apple didn't say where it sent the code
+    sms: boolean;
+    numbers: { id: number; numberWithDialCode: string }[];
+    selectedNumberId: number | null;
+}
+
+export interface SideloadInfo {
+    available: boolean; // this copy has the helper
+    appleId: string | null;
+    job: {
+        kind: 'login' | 'install' | 'forget';
+        udid: string | null;
+        step: string;
+        percent: number | null;
+        twoFactor: TwoFactorQuestion | null;
+        startedAt: number;
+    } | null;
+    queued: string[];
+    lastError: { kind: string; udid: string | null; message: string; at: number } | null;
+}
+
 export interface AccountInfo {
     required: boolean; // the packaged app only runs signed in
     signedIn: boolean;

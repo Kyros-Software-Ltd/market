@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { AccountRow } from '@/components/Account';
 import { StatusBadge } from '@/components/common';
 import { PhoneState } from '@/components/PhoneState';
+import { AppleIdPanel } from '@/components/Sideload';
 import { VersionRow } from '@/components/Update';
 import { Panel, SelectField, Toggle } from '@/components/ui';
 import { type Device, get, post, type SetupInfo } from '@/lib/api';
@@ -115,7 +116,7 @@ function Step({ n, done, title, children }: { n: number; done: boolean; title: s
 const openExternal = (url: string) => window.open(url, '_blank', 'noopener');
 
 export function SetupPage({ setup, reload }: { setup: SetupInfo | null; reload: () => void }) {
-    const { status } = useStore();
+    const { status, sideload } = useStore();
     const act = useAction();
     const [openAtLogin, setOpenAtLogin] = useState<boolean | null>(null);
     const [desktop, setDesktop] = useState(false);
@@ -164,11 +165,24 @@ export function SetupPage({ setup, reload }: { setup: SetupInfo | null; reload: 
                     )}
                 </Step>
 
-                <Step n={2} done={!!s?.sideloadly && !!s?.wdaIpa && phonesHaveApp} title="Control app">
+                <Step
+                    n={2}
+                    done={(!!sideload?.appleId || (!!s?.sideloadly && !!s?.wdaIpa)) && phonesHaveApp}
+                    title="Control app"
+                >
                     <p className="dim">
-                        Each phone runs a small control app (WebDriverAgent, shown as "Market"). Install it with
-                        Sideloadly using a spare free Apple ID; about 2 minutes per phone.
+                        Each phone runs a small control app (WebDriverAgent, shown as "Market"), signed with a spare
+                        free Apple ID.
+                        {sideload?.available
+                            ? ' Sign in here, then click Install on each phone; about a minute per phone.'
+                            : ' Install it with Sideloadly; about 2 minutes per phone.'}
                     </p>
+                    {sideload?.available && (
+                        <div className="mt-2.5">
+                            <AppleIdPanel />
+                        </div>
+                    )}
+                    {sideload?.available && <p className="small muted mt-2.5">Or use Sideloadly instead:</p>}
                     <ol className="howto">
                         <li>
                             {s?.sideloadly ? (
