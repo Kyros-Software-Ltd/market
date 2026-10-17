@@ -12,6 +12,8 @@ on:
     push:
         branches: [main]
         paths-ignore: ['**.md', 'LICENSE', 'NOTICE', '.github/**']
+    # Run workflow on the Actions page makes a release from main by hand.
+    workflow_dispatch:
 
 permissions:
     contents: write
@@ -85,6 +87,9 @@ jobs:
 
             - name: Build the dashboard
               run: |
+                  # go-ios's install moves its program into npm's global folder, which is on C: while
+                  # the checkout is on D:; Windows can't move files across drives, so keep it on D:.
+                  export NPM_CONFIG_PREFIX="$RUNNER_TEMP/npm-prefix"
                   npm ci --no-audit --no-fund
                   npm run build
                   npm prune --omit=dev
