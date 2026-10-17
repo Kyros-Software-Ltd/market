@@ -6,7 +6,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { Toaster } from 'sonner';
 import { PhoneControl } from '@/components/PhoneControl';
 import { PromptProvider } from '@/components/Prompt';
-import { UpdateNotice } from '@/components/Update';
+import { UpdateNotice, VersionTag } from '@/components/Update';
 import { CalendarIcon, ClaudeCodeIcon, FlowIcon, FolderOpenIcon, HomeIcon, PhoneIcon, SetupIcon } from '@/lib/icons';
 import { type Page, StoreProvider, useStore } from '@/lib/store';
 
@@ -94,6 +94,7 @@ function Frame({ children }: { children: ReactNode }) {
                         <span className={`dot ${connected ? 'ready' : 'error'}`} />
                         {connected ? 'Engine running' : 'Engine offline'}
                     </span>
+                    <VersionTag />
                     <a
                         className="sponsor"
                         href="https://affrev.com"

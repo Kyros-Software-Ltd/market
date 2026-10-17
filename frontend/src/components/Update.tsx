@@ -95,6 +95,12 @@ export function UpdateNotice() {
     );
 }
 
+/** The installed version, in the sidebar footer. */
+export function VersionTag() {
+    const { info } = useUpdate();
+    return info ? <span className="small dim">Market v{info.version}</span> : null;
+}
+
 export function VersionRow() {
     const { info, setInfo } = useUpdate();
     const act = useAction();
