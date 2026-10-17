@@ -9,7 +9,8 @@ import { useAction } from '@/lib/store';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function useUpdate(every = 10 * 60 * 1000) {
+// Asks the local backend (which checks GitHub every 5 minutes), so polling often is cheap.
+function useUpdate(every = 30 * 1000) {
     const [info, setInfo] = useState<UpdateInfo | null>(null);
     const reload = useCallback(
         () =>

@@ -17,7 +17,7 @@ const VERSION = PKG.version || '0.0.0';
 const REPO = repoName(PKG.repository); // "owner/name"
 const STATE_FILE = path.join(DATA_DIR, 'update.json');
 const UPDATE_EXIT_CODE = 75;
-const CHECK_EVERY = 6 * 60 * 60 * 1000;
+const CHECK_EVERY = 5 * 60 * 1000; // a new release shows up within 5 minutes
 
 function repoName(repository) {
     const url = typeof repository === 'string' ? repository : repository?.url || '';

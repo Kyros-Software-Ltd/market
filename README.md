@@ -144,7 +144,7 @@ npm run backend    # backend only (API on :4000)
 
 ## Updates
 
-Market checks for a new version every few hours. When there's one, a banner shows at the top of every page: click **Update** and Market downloads it, reinstalls its packages, rebuilds the dashboard and restarts, and the page reloads by itself. Your phones, automations, schedules and media are in the data folder, so updates don't touch them. **Setup → Options** shows your version and has **Check for updates**.
+Market checks for a new version every 5 minutes. When there's one, a banner shows at the top of every page: click **Update** and Market downloads it, reinstalls its packages, rebuilds the dashboard and restarts, and the page reloads by itself. Your phones, automations, schedules and media are in the data folder, so updates don't touch them. **Setup → Options** shows your version and has **Check for updates**.
 
 Updating needs Market to have been started with `npm start` (or Start with Windows). If you installed with `git clone`, Market fast-forwards to the new release's tag, so keep your own changes on a separate branch.
 
@@ -164,7 +164,7 @@ Market picks it up at its next check (**Setup → Check for updates** to check n
 
 ### Publishing an update
 
-Push to `main`. The Release workflow bumps the patch version (2.0.1 → 2.0.2), commits that back to `main` as "Release v2.0.2", tags it and publishes a GitHub Release with notes made from the commits. Every Market install sees it within a few hours. Pushes that only change docs (`*.md`, LICENSE, NOTICE) or workflows don't make a release.
+Push to `main`. The Release workflow bumps the patch version (2.0.1 → 2.0.2), commits that back to `main` as "Release v2.0.2", tags it and publishes a GitHub Release with notes made from the commits. Every running Market shows it within about 5 minutes. Pushes that only change docs (`*.md`, LICENSE, NOTICE) or workflows don't make a release.
 
 Because the workflow adds a commit to `main`, pull before you push again (GitHub Desktop asks you to fetch first).
 
