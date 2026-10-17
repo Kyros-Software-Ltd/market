@@ -62,6 +62,8 @@ export function PhoneState({ device, compact = false }: { device: Device; compac
             <div className="screen-state bad" onClick={(e) => e.stopPropagation()}>
                 <h4>Couldn't connect</h4>
                 <p className="mono small">{d.error}</p>
+                {/* The control app may be broken or from another Apple ID; reinstalling usually fixes that. */}
+                <SideloadButton device={d} label="Reinstall control app" />
                 <Button size="sm" variant="secondary" onPress={() => act(() => post(`/devices/${d.udid}/connect`))}>
                     <RotateCw size={14} />
                     Try again

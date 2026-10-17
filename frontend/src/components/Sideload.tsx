@@ -153,7 +153,7 @@ export function TwoFactorDialog() {
 }
 
 /** On a phone that needs the control app: install it, or show how that's going. */
-export function SideloadButton({ device }: { device: Device }) {
+export function SideloadButton({ device, label = 'Install' }: { device: Device; label?: string }) {
     const { sideload, reloadSideload, go } = useStore();
     const act = useAction();
     if (!sideload?.available) return null;
@@ -185,7 +185,7 @@ export function SideloadButton({ device }: { device: Device }) {
                 }
             >
                 <Download size={14} />
-                {sideload.appleId ? 'Install' : 'Sign in to install'}
+                {sideload.appleId ? label : 'Sign in to install'}
             </Button>
             {failed && (
                 <span className="small" style={{ color: 'var(--red)' }}>

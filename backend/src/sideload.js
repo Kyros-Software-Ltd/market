@@ -159,6 +159,12 @@ async function pump() {
     if (job || !queue.length) return;
     const { udid, auto } = queue.shift();
     const { appleId } = load();
+    // Stop the phone's control app and pause auto-connect while installing: the phone won't finish
+    // an install while Market keeps launching the app it's replacing.
+    try {
+        devices?.disconnect(udid);
+        devices?.get(udid).log(auto ? 'Re-signing the control app…' : 'Installing the control app…');
+    } catch {}
     try {
         const ipa = await setup.ensureWdaIpa();
         const done = await runHelper('install', ['install', '--apple-id', appleId, '--ipa', ipa, '--udid', udid], {
@@ -170,7 +176,6 @@ async function pump() {
         lastError = null;
         try {
             devices?.get(udid).log(auto ? 'Re-signed the control app' : 'Installed the control app');
-            devices?.connect(udid).catch(() => {});
         } catch {}
     } catch (e) {
         if (auto) autoTried.set(udid, Date.now());
@@ -179,6 +184,7 @@ async function pump() {
             devices?.get(udid).log(`Installing the control app failed: ${e.message}`);
         } catch {}
     }
+    devices?.connect(udid).catch(() => {});
     pump();
 }
 
