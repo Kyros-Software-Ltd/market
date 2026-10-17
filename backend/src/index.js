@@ -9,6 +9,7 @@ const desktop = require('./desktop');
 const { DeviceManager } = require('./devices');
 const setup = require('./setup');
 const updater = require('./updater');
+const account = require('./account');
 const media = require('./media');
 const { Controller } = require('./control');
 const { AutomationRunner } = require('./automations');
@@ -48,6 +49,35 @@ function createApp() {
             res.status(e.status || 400).json({ error: e.message });
         }
     };
+    // ---------- AffRev account: the packaged app is locked until someone signs in ----------
+    app.get(
+        '/api/account',
+        api(() => account.status()),
+    );
+    app.post(
+        '/api/account/sign-in',
+        api((req) => ({ url: account.signInUrl(String(req.body.origin || '')) })),
+    );
+    // AffRev sends the browser back here (through the dashboard's /api proxy) with this PC's token.
+    app.get('/api/account/callback', async (req, res) => {
+        try {
+            await account.finishSignIn({ token: String(req.query.token || ''), state: String(req.query.state || '') });
+            updater.check(); // the packaged app gets its updates through this account
+            res.redirect('/');
+        } catch (e) {
+            res.redirect(`/?signin_error=${encodeURIComponent(e.message)}`);
+        }
+    });
+    app.post(
+        '/api/account/sign-out',
+        api(() => account.signOut()),
+    );
+    // Everything else waits for the sign-in. Updates stay open so a locked copy can still update.
+    app.use('/api', (req, res, next) => {
+        if (account.allowed() || req.path.startsWith('/update')) return next();
+        res.status(401).json({ error: 'Sign in with AffRev to use Market.', signIn: true });
+    });
+
     // Who sent a request: the MCP server marks Claude's requests so the app can show them.
     const actor = (req) => (req.get('x-actor') === 'claude' ? 'claude' : 'you');
 
@@ -458,6 +488,7 @@ async function start({ port = config.port } = {}) {
             ctx.proxy.start();
             ctx.devices.start();
             ctx.scheduler.start();
+            account.start();
             updater.start();
             const shutdown = () => {
                 ctx.runner.stopAll();

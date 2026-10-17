@@ -4,6 +4,7 @@
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { DATA_DIR, readJson, writeJson } = require('./paths');
+const account = require('./account');
 
 const FILE = path.join(DATA_DIR, 'schedules.json');
 const TICK_MS = 30000;
@@ -103,6 +104,7 @@ class Scheduler {
     }
 
     tick() {
+        if (!account.allowed()) return; // nothing runs while Market is waiting for an AffRev sign-in
         const now = Date.now();
         const today = new Date();
         let changed = false;

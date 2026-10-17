@@ -108,8 +108,17 @@ export interface ClaudeInfo {
     activity: Activity[];
 }
 
+export interface AccountInfo {
+    required: boolean; // the packaged app only runs signed in
+    signedIn: boolean;
+    user: { id: string; email: string; name: string | null } | null;
+    error: string;
+    affrevUrl: string;
+}
+
 export interface UpdateInfo {
     version: string;
+    source: 'affrev' | 'github';
     repo: string | null;
     latest: { version: string; tag: string; notes: string; url: string; publishedAt: number | null } | null;
     available: boolean;

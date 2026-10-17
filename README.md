@@ -111,6 +111,7 @@ frontend/           Dashboard: Next.js + HeroUI on :4100, /api proxied to the ba
   src/components/   Shell, phone control, live screen, HeroUI wrappers
   src/lib/          API client, app state, icons
 scripts/start.js    Starts both, opens the browser and applies updates
+scripts/package.js  Builds the packaged app (the zip on AffRev)
 .github/workflows/  Release: publishes a GitHub Release for each version tag
 ```
 
@@ -147,6 +148,12 @@ npm run backend    # backend only (API on :4000)
 Market checks for a new version every 5 minutes. When there's one, a banner shows at the top of every page: click **Update** and Market downloads it, reinstalls its packages, rebuilds the dashboard and restarts, and the page reloads by itself. Your phones, automations, schedules and media are in the data folder, so updates don't touch them. **Setup → Options** shows your version and has **Check for updates**.
 
 Updating needs Market to have been started with `npm start` (or Start with Windows). If you installed with `git clone`, Market fast-forwards to the new release's tag, so keep your own changes on a separate branch.
+
+### The packaged app (AffRev)
+
+People who aren't developers get Market from **affrev.com/dashboard/market**: a zip with the built app, a copy of Node and no source code. They unzip it, double-click **Start Market**, and sign in with their AffRev account (free). The packaged app stays locked until someone signs in, and it gets its updates from AffRev instead of GitHub. Signed-in PCs are listed on that AffRev page, where each one can be signed out.
+
+Every release builds that zip (`scripts/package.js`, on Windows) and uploads it to AffRev's private R2 bucket. That needs these secrets in the repo (**Settings → Secrets and variables → Actions**): `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `MARKET_R2_BUCKET`. AffRev reads the same bucket through its `MARKET_R2_BUCKET` setting. Copies run from the source (`npm start`) don't need a sign-in; set `MARKET_REQUIRE_SIGNIN=1` to try the sign-in screen.
 
 ### Updates from a private repo
 

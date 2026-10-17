@@ -4,6 +4,7 @@ import { Button } from '@heroui/react';
 import { CircleX } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { Toaster } from 'sonner';
+import { SignInGate } from '@/components/Account';
 import { PhoneControl } from '@/components/PhoneControl';
 import { PromptProvider } from '@/components/Prompt';
 import { UpdateNotice, VersionTag } from '@/components/Update';
@@ -23,7 +24,9 @@ export function Shell({ children }: { children: ReactNode }) {
     return (
         <StoreProvider>
             <PromptProvider>
-                <Frame>{children}</Frame>
+                <SignInGate>
+                    <Frame>{children}</Frame>
+                </SignInGate>
             </PromptProvider>
         </StoreProvider>
     );

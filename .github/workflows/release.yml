@@ -3,6 +3,9 @@
 # For a bigger jump, run npm version minor (or major) and git push --follow-tags yourself; a commit
 # that already carries its version's tag is released as it is.
 # Pushes made with the workflow's own token don't start workflows, so the bump commit doesn't loop.
+# The package job then builds the packaged Market (scripts/package.js) on Windows and uploads it to
+# AffRev's private R2 bucket, where every signed-in Market picks it up. It needs these repo secrets:
+# R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, MARKET_R2_BUCKET (skipped until they're set).
 name: Release
 
 on:
@@ -20,6 +23,8 @@ concurrency:
 jobs:
     release:
         runs-on: ubuntu-latest
+        outputs:
+            tag: ${{ steps.bump.outputs.tag }}
         steps:
             - uses: actions/checkout@v4
               with:
@@ -30,6 +35,7 @@ jobs:
                   node-version: 20
 
             - name: Bump the version
+              id: bump
               run: |
                   git config user.name "github-actions[bot]"
                   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -45,6 +51,7 @@ jobs:
                       git push origin HEAD:main "v$version"
                   fi
                   echo "TAG=v$version" >> "$GITHUB_ENV"
+                  echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
             - name: Publish the release
               env:
@@ -55,3 +62,52 @@ jobs:
                   else
                       gh release create "$TAG" --title "Market ${TAG#v}" --generate-notes --verify-tag
                   fi
+
+    package:
+        needs: release
+        runs-on: windows-latest
+        env:
+            R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+            AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+            AWS_DEFAULT_REGION: auto
+            # R2 doesn't accept the newer AWS CLI's default upload checksums.
+            AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+            AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+            BUCKET: ${{ secrets.MARKET_R2_BUCKET }}
+            TAG: ${{ needs.release.outputs.tag }}
+        defaults:
+            run:
+                shell: bash
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ needs.release.outputs.tag }}
+                  fetch-depth: 0
+
+            # This Node also ships inside the package as runtime/node.exe.
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+
+            - name: Build the dashboard
+              run: |
+                  npm ci --no-audit --no-fund
+                  npm run build
+                  npm prune --omit=dev
+
+            - name: Package
+              run: |
+                  npm install --prefix "$RUNNER_TEMP/tools" --no-audit --no-fund esbuild@0.25.10
+                  previous=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+                  export RELEASE_NOTES="$(git log --no-merges --pretty='- %s' ${previous:+$previous..}$TAG | grep -v '^- Release v' || true)"
+                  ESBUILD="$RUNNER_TEMP/tools/node_modules/esbuild" node scripts/package.js
+
+            - name: Upload to AffRev
+              if: env.AWS_ACCESS_KEY_ID != '' && env.BUCKET != ''
+              run: |
+                  endpoint="https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
+                  version=$(node -p "require('./package.json').version")
+                  aws s3 cp "dist/market-$version.zip" "s3://$BUCKET/releases/market-$version.zip" --endpoint-url "$endpoint"
+                  # latest.json last, so Market never sees a version whose zip isn't up yet.
+                  aws s3 cp dist/latest.json "s3://$BUCKET/latest.json" --endpoint-url "$endpoint" --content-type application/json --cache-control no-store

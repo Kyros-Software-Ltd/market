@@ -47,10 +47,13 @@ const nextBin = () => require.resolve('next/dist/bin/next', { paths: [FRONTEND] 
         return;
     }
 
-    // Build the dashboard on the first run and after every update.
+    updater.cleanUp();
+
+    // Build the dashboard on the first run and after every update. The packaged app ships it built.
+    const packaged = fs.existsSync(path.join(ROOT, 'packaged.json'));
     const stamp = path.join(FRONTEND, '.next', 'market-version');
     const built = fs.existsSync(path.join(FRONTEND, '.next', 'BUILD_ID')) && fs.existsSync(stamp);
-    if (!dev && (!built || fs.readFileSync(stamp, 'utf8') !== updater.VERSION)) {
+    if (!dev && !packaged && (!built || fs.readFileSync(stamp, 'utf8') !== updater.VERSION)) {
         console.log(
             built ? `Building the dashboard for ${updater.VERSION}…` : 'Building the dashboard (first run only)…',
         );

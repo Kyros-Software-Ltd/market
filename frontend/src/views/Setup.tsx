@@ -2,6 +2,7 @@
 import { Button, Card } from '@heroui/react';
 import { Check as CheckIcon, Download, ExternalLink, FileDown, FolderOpen } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
+import { AccountRow } from '@/components/Account';
 import { StatusBadge } from '@/components/common';
 import { PhoneState } from '@/components/PhoneState';
 import { VersionRow } from '@/components/Update';
@@ -285,6 +286,7 @@ export function SetupPage({ setup, reload }: { setup: SetupInfo | null; reload: 
                                 />
                             </div>
                         )}
+                        <AccountRow />
                         <VersionRow />
                         <div className="row">
                             <span className="grow mono muted ellipsis">{s?.dataDir}</span>

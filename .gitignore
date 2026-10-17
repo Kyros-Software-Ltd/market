@@ -9,3 +9,6 @@ devimages/
 frontend/.next/
 frontend/next-env.d.ts
 *.tsbuildinfo
+dist/
+.update-new/
+.update-old/

@@ -1,5 +1,6 @@
 {
     "port": 4000,
+    "affrevUrl": "https://affrev.com",
 
     "wda": {
         "bundleId": "com.facebook.WebDriverAgentRunner.xctrunner",
