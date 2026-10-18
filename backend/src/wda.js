@@ -245,7 +245,8 @@ class WDAClient {
     }
 
     pressButton(name) {
-        return this.request('POST', '/wda/pressButton', { name });
+        // Session-scoped: the control app has no session-less /wda/pressButton.
+        return this.session('POST', '/wda/pressButton', { name });
     }
 }
 

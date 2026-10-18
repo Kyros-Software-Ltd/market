@@ -138,6 +138,18 @@ function createApp() {
         '/api/wifi/found',
         api(() => wifi.found()),
     );
+    // Apple's USB network adapter stops Wi-Fi phones being found while a phone is plugged in.
+    app.get(
+        '/api/netfix',
+        api(async () => ({
+            needed:
+                devices.list().some((d) => d.mode === 'wifi') && (await require('./netfix').activeAdapters()).length > 0,
+        })),
+    );
+    app.post(
+        '/api/netfix',
+        api(() => require('./netfix').disableAdapters()),
+    );
     app.post(
         '/api/devices/:udid/rename',
         api((req) => {

@@ -100,6 +100,43 @@ function FoundOnWifi() {
     );
 }
 
+// While a phone is plugged in, Windows' "Apple Mobile Device Ethernet" adapter makes Apple's service
+// lose phones on Wi-Fi. Market doesn't use it, so one click (and a Windows admin prompt) switches it off.
+function WifiAdapterFix() {
+    const act = useAction();
+    const [needed, setNeeded] = useState(false);
+    useEffect(() => {
+        const load = () =>
+            get<{ needed: boolean }>('/netfix')
+                .then((r) => setNeeded(r.needed))
+                .catch(() => {});
+        load();
+        const t = setInterval(load, 10000);
+        return () => clearInterval(t);
+    }, []);
+    if (!needed) return null;
+    return (
+        <Card variant="secondary" className="panel">
+            <div className="row" style={{ padding: '9px 12px', gap: 12 }}>
+                <span className="grow small dim">
+                    Wi-Fi phones can drop when another phone is plugged in by USB. Switching off Windows' "Apple Mobile
+                    Device Ethernet" adapter fixes it (it only shares the phone's internet with this PC).
+                </span>
+                <Button
+                    size="sm"
+                    variant="secondary"
+                    onPress={async () => {
+                        if (await act(() => post('/netfix', {}), 'Apple USB network adapter switched off'))
+                            setNeeded(false);
+                    }}
+                >
+                    Fix
+                </Button>
+            </div>
+        </Card>
+    );
+}
+
 function Step({ n, done, title, children }: { n: number; done: boolean; title: string; children: ReactNode }) {
     return (
         <Card className={`panel step ${done ? 'done' : ''}`}>
@@ -224,6 +261,7 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
                             <span className="small muted">No phones connected yet.</span>
                         )}
                         <FoundOnWifi />
+                        <WifiAdapterFix />
                     </div>
                 </Step>
 
