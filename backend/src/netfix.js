@@ -5,7 +5,7 @@
 // only needs admin rights, so the fix asks Windows for them once.
 const { execFile } = require('node:child_process');
 
-const MATCH = "InterfaceDescription -like 'Apple Mobile Device Ethernet*'";
+const MATCH = "$_.InterfaceDescription -like 'Apple Mobile Device Ethernet*'";
 
 function powershell(command, timeout = 15000) {
     return new Promise((resolve, reject) => {
