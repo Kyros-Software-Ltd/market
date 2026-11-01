@@ -280,6 +280,7 @@ async fn sign_in(flags: &HashMap<String, String>) -> DeveloperSession {
         eprintln!("Couldn't save the password: {e}");
     }
 
+    status("Opening developer account…");
     DeveloperSession::from_account(&mut account)
         .await
         .unwrap_or_else(|e| fail(format!("Couldn't open the developer account: {e}")))

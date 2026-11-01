@@ -132,11 +132,30 @@ fn main() {
             fail("iCloud returned no anisette headers.");
         }
         let object_for_key = sel(cstr("objectForKey:").as_ptr());
-        let machine_id = text(send_id(headers, object_for_key, make("X-Apple-MD-M")));
-        let otp = text(send_id(headers, object_for_key, make("X-Apple-MD")));
+        let get_val = |key: &str| text(send_id(headers, object_for_key, make(key)));
+
+        let machine_id = get_val("X-Apple-MD-M");
+        let otp = get_val("X-Apple-MD");
         if machine_id.is_empty() || otp.is_empty() {
             fail("iCloud returned empty anisette headers.");
         }
-        println!("{{\"machineId\":{},\"otp\":{}}}", json_string(&machine_id), json_string(&otp));
+
+        // Extra device-identity headers Apple requires when the anisette comes from iCloud.
+        let device_id   = get_val("X-Mme-Device-Id");
+        let local_user  = get_val("X-Apple-I-MD-LU");
+        let rinfo       = get_val("X-Apple-I-MD-RINFO");
+        let client_info = get_val("X-Mme-Client-Info");
+
+        let mut out = format!(
+            "{{\"machineId\":{},\"otp\":{}",
+            json_string(&machine_id),
+            json_string(&otp),
+        );
+        if !device_id.is_empty()   { out += &format!(",\"deviceId\":{}", json_string(&device_id)); }
+        if !local_user.is_empty()  { out += &format!(",\"localUser\":{}", json_string(&local_user)); }
+        if !rinfo.is_empty()       { out += &format!(",\"rinfo\":{}", json_string(&rinfo)); }
+        if !client_info.is_empty() { out += &format!(",\"clientInfo\":{}", json_string(&client_info)); }
+        out += "}";
+        println!("{out}");
     }
 }

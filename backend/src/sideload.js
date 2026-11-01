@@ -58,9 +58,15 @@ function status() {
 // time", error -80045) rather than the password. Since October 2026 it does this to some Apple IDs
 // signing in from sideloading tools; a fresh anisette identity sometimes gets through next time.
 function explain(message) {
-    if (!/cannot be completed at this time/i.test(message)) return message;
-    fs.rmSync(path.join(WORK_DIR, 'anisette'), { recursive: true, force: true });
-    return 'Apple refused this sign-in (not a wrong password). Apple has been blocking some Apple IDs from sideloading tools since October; try again later, or try another spare Apple ID.';
+    if (/cannot be completed at this time/i.test(message)) {
+        fs.rmSync(path.join(WORK_DIR, 'anisette'), { recursive: true, force: true });
+        fs.rmSync(path.join(WORK_DIR, 'local-anisette-device-id'), { force: true });
+        return 'Apple refused this sign-in. The device identity was reset — try signing in again. If it keeps failing, try a different spare Apple ID.';
+    }
+    if (/503|Service Temporarily Unavailable/i.test(message)) {
+        return "Apple's servers are temporarily unavailable (503). Try again in a minute.";
+    }
+    return message;
 }
 
 /** Runs the helper once. Resolves with its "done" event, rejects with its error. */
@@ -68,7 +74,13 @@ function runHelper(kind, args, { password = '', udid = null } = {}) {
     const exe = helperPath();
     if (!exe) return Promise.reject(new Error("This copy of Market doesn't include the sideloading helper."));
     const anisette = loadConfig().sideloadAnisetteUrl;
-    const child = spawn(exe, [...args, '--data', WORK_DIR, ...(anisette ? ['--anisette', anisette] : [])], {
+    const child = spawn(exe, [
+        ...args, '--data', WORK_DIR,
+        // When a URL is configured use the remote anisette server instead of local iCloud for
+        // Windows — the remote server's device identity is accepted by Apple, while local iCloud
+        // requires a registered dotted-hex device ID we can't read on Windows.
+        ...(anisette ? ['--anisette', anisette, '--anisette-source', 'server'] : []),
+    ], {
         windowsHide: true,
         env: process.env, // USBMUXD_SOCKET_ADDRESS: Market's usbmux proxy, so Wi-Fi phones work too
     });
@@ -132,12 +144,12 @@ async function signIn(appleId, password) {
     lastError = null;
     try {
         await runHelper('login', ['login', '--apple-id', appleId, '--remember'], { password });
+        writeJson(STATE_FILE, { ...load(), appleId });
+        pump();
     } catch (e) {
         lastError = { kind: 'login', udid: null, message: e.message, at: Date.now() };
         throw e;
     }
-    writeJson(STATE_FILE, { ...load(), appleId });
-    pump();
 }
 
 async function signOut() {

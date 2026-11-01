@@ -22,5 +22,7 @@
     "appleUsbmuxPort": 27015,
 
     "startTunnel": true,
-    "autoConnect": true
+    "autoConnect": true,
+
+    "sideloadAnisetteUrl": "https://new.ani.sidestore.io"
 }

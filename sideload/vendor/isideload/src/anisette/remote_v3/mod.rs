@@ -2,6 +2,7 @@ mod state;
 mod websocket;
 
 use std::sync::Arc;
+use tokio::sync::OnceCell;
 use web_time::SystemTime;
 
 use base64::prelude::*;
@@ -36,6 +37,9 @@ pub struct RemoteV3AnisetteProvider {
     serial_number: String,
     client: reqwest_middleware::ClientWithMiddleware,
     websocket_proxy: Option<String>,
+    // Fetched once per session — the server returns the same value every time and fetching it on
+    // every anisette request doubles the round-trips to the remote server.
+    cached_client_info: Arc<OnceCell<AnisetteClientInfo>>,
 }
 
 impl RemoteV3AnisetteProvider {
@@ -57,6 +61,7 @@ impl RemoteV3AnisetteProvider {
             serial_number,
             client: Self::build_reqwest_client(None)?,
             websocket_proxy: None,
+            cached_client_info: Arc::new(OnceCell::new()),
         })
     }
 
@@ -119,27 +124,25 @@ impl AnisetteProvider for RemoteV3AnisetteProvider {
         self.fetch_headers(Some(sim)).await
     }
 
-    // Can be hardcoded, but apple is changing things so much nowadays it makes more sense to just get it from the server
     async fn get_client_info(&self) -> Result<AnisetteClientInfo, Report> {
+        let client = self.client.clone();
+        let url = self.url.clone();
         let info = self
-            .client
-            .get(format!("{}/v3/client_info", self.url))
-            .send()
-            .await
-            .context("Failed to request /v3/client_info from anisette server")?
-            .error_for_status()
-            .context("anisette server returned an error for /v3/client_info")?
-            .json::<AnisetteClientInfo>()
-            .await
-            .context("Failed to parse /v3/client_info response")?;
-
-        // let info = AnisetteClientInfo {
-        //     client_info:
-        //         "<Pixel 7> <Android;14;UQ1A.240205.002> <com.apple.AuthKit/1 (com.apple.akd/1.0)>"
-        //             .to_string(),
-        //     user_agent: "akd/1.0 CFNetwork/808.1.4".to_string(),
-        // };
-        Ok(info)
+            .cached_client_info
+            .get_or_try_init(|| async move {
+                client
+                    .get(format!("{}/v3/client_info", url))
+                    .send()
+                    .await
+                    .context("Failed to request /v3/client_info from anisette server")?
+                    .error_for_status()
+                    .context("anisette server returned an error for /v3/client_info")?
+                    .json::<AnisetteClientInfo>()
+                    .await
+                    .context("Failed to parse /v3/client_info response")
+            })
+            .await?;
+        Ok(info.clone())
     }
 
     async fn provision(&mut self, gs: &Arc<GrandSlam>, force_reset: bool) -> Result<(), Report> {
@@ -159,7 +162,12 @@ impl RemoteV3AnisetteProvider {
             return Ok(AnisetteDataResponse::NeedsProvisioning);
         };
 
-        let client_info = self.get_client_info().await?;
+        // `provision()` fetches and caches this once. Header requests should only need the
+        // `/v3/get_headers` round-trip; calling the endpoint here adds latency to every Apple API call.
+        let client_info = self
+            .cached_client_info
+            .get()
+            .ok_or_else(|| report!("Anisette client info was not initialized; provision first"))?;
 
         let mut body = serde_json::json!({
             "identifier": BASE64_STANDARD.encode(state.keychain_identifier),
@@ -303,7 +311,10 @@ impl RemoteV3AnisetteProvider {
         debug!("Connected to provisioning socket");
 
         loop {
-            let Some(msg) = ws.next().await else { continue };
+            let msg = tokio::time::timeout(std::time::Duration::from_secs(30), ws.next())
+                .await
+                .map_err(|_| report!("Anisette provisioning timed out waiting for server response. Try again."))?;
+            let Some(msg) = msg else { continue };
             let msg = msg?;
 
             let text = match msg {

@@ -19,8 +19,12 @@ use isideload::{
 };
 use rootcause::{Report, prelude::*};
 
+// Must match what iCloud for Windows actually sends (Apple validates these against the anisette
+// data and rejects sign-ins from clients that use a different identifier or format).
+// AOSKit version: first two parts of AOSKit.dll FileVersion (HKLM\SOFTWARE\Apple Inc.\Internet
+// Services). iCloud version: first two parts of that key's Version value.
 const CLIENT_INFO: &str =
-    "<PC> <Windows;6.2(0,0);9200> <com.apple.AuthKit/1 (com.apple.iCloud/7.21)>";
+    "<PC> <Windows; 6.2.9200/SP0.0; W> <com.apple.AOSKit/129.8 (com.apple.iCloud/7.21)>";
 const USER_AGENT: &str = "akd/1.0 CFNetwork/808.1.4";
 const ROUTING_INFO: &str = "17106176";
 
@@ -57,7 +61,7 @@ impl LocalAnisette {
         Ok(LocalAnisette { exe, device_id })
     }
 
-    fn run_helper(&self) -> Result<(String, String), Report> {
+    fn run_helper(&self) -> Result<AnisetteOutput, Report> {
         let out = std::process::Command::new(&self.exe)
             .output()
             .context("Failed to run market-anisette")?;
@@ -71,44 +75,69 @@ impl LocalAnisette {
         if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
             bail!("{error}");
         }
-        let field = |k: &str| json.get(k).and_then(|v| v.as_str()).map(str::to_string);
-        match (field("machineId"), field("otp")) {
-            (Some(machine_id), Some(otp)) => Ok((machine_id, otp)),
-            _ => bail!("market-anisette returned no headers"),
-        }
+        let str_field = |k: &str| json.get(k).and_then(|v| v.as_str()).map(str::to_string);
+        let machine_id = str_field("machineId").ok_or_else(|| report!("market-anisette returned no machineId"))?;
+        let otp = str_field("otp").ok_or_else(|| report!("market-anisette returned no otp"))?;
+        Ok(AnisetteOutput {
+            machine_id,
+            otp,
+            device_id:   str_field("deviceId"),
+            local_user:  str_field("localUser"),
+            rinfo:       str_field("rinfo"),
+            client_info: str_field("clientInfo"),
+        })
     }
+}
+
+struct AnisetteOutput {
+    machine_id:  String,
+    otp:         String,
+    device_id:   Option<String>,
+    local_user:  Option<String>,
+    rinfo:       Option<String>,
+    client_info: Option<String>,
 }
 
 #[async_trait::async_trait]
 impl AnisetteProvider for LocalAnisette {
     async fn get_anisette_data(&self) -> Result<AnisetteDataResponse, Report> {
-        let (machine_id, otp) = self.run_helper()?;
+        let h = self.run_helper()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
+
+        // Use iCloud's own device ID when available (dotted-hex format Apple expects), else fall
+        // back to our stored UUID. Same for RINFO and LU.
+        let effective_device_id = h.device_id.as_deref().unwrap_or(&self.device_id);
+        let local_user = h.local_user
+            .unwrap_or_else(|| BASE64_STANDARD.encode(&self.device_id));
+        let rinfo = h.rinfo.unwrap_or_else(|| ROUTING_INFO.to_string());
+        let client_info = h.client_info.unwrap_or_else(|| CLIENT_INFO.to_string());
+
         let extra = vec![
-            (
-                "X-Apple-I-MD-LU".to_string(),
-                BASE64_STANDARD.encode(&self.device_id),
-            ),
-            ("X-Apple-I-MD-RINFO".to_string(), ROUTING_INFO.to_string()),
+            ("X-Apple-I-MD-LU".to_string(), local_user),
+            ("X-Apple-I-MD-RINFO".to_string(), rinfo),
             ("X-Apple-I-Client-Time".to_string(), iso8601(now)),
             ("X-Apple-Locale".to_string(), "en_US".to_string()),
             ("X-Apple-I-TimeZone".to_string(), "UTC".to_string()),
         ];
         Ok(AnisetteDataResponse::Data(AnisetteData::new(
-            machine_id,
-            otp,
-            self.device_id.clone(),
-            CLIENT_INFO.to_string(),
+            h.machine_id,
+            h.otp,
+            effective_device_id.to_string(),
+            client_info.clone(),
             extra,
         )))
     }
 
     async fn get_client_info(&self) -> Result<AnisetteClientInfo, Report> {
+        // Run the helper to get iCloud's own client_info if it provides one.
+        let client_info = self.run_helper().ok()
+            .and_then(|h| h.client_info)
+            .unwrap_or_else(|| CLIENT_INFO.to_string());
         Ok(AnisetteClientInfo {
-            client_info: CLIENT_INFO.to_string(),
+            client_info,
             user_agent: USER_AGENT.to_string(),
         })
     }
