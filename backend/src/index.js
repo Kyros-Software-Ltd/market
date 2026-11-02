@@ -103,6 +103,12 @@ function createApp() {
         })),
     );
 
+    app.delete(
+        '/api/devices/:udid',
+        api((req) => {
+            devices.forget(req.params.udid);
+        }),
+    );
     app.get(
         '/api/devices/:udid/logs',
         api((req) => ({ logs: devices.get(req.params.udid).logs })),

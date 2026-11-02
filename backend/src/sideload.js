@@ -20,6 +20,18 @@ const WORK_DIR = path.join(DATA_DIR, 'sideload'); // anisette state and the sign
 const RESIGN_BEFORE_MS = 24 * 3600000;
 const RETRY_AFTER_MS = 6 * 3600000; // after a failed automatic re-sign
 const CHECK_EVERY_MS = 30 * 60000;
+const STALL_MS = 90000; // a sign-in step with no news for this long is stuck
+const STALL_INSTALL_MS = 5 * 60000;
+const LOG_FILE = path.join(DATA_DIR, 'sideload.log'); // what the helper did and said, for when it gets stuck
+
+// Appends one timestamped line. Never gets a password: only steps, errors and the helper's own stderr.
+function logLine(text) {
+    try {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+        if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > 512 * 1024) fs.renameSync(LOG_FILE, `${LOG_FILE}.old`);
+        fs.appendFileSync(LOG_FILE, `${new Date().toISOString()} ${text}\n`);
+    } catch {}
+}
 
 // The packaged app ships the helper in bin/; a source checkout uses its own cargo build.
 const helperPath = () =>
@@ -86,11 +98,23 @@ function runHelper(kind, args, { password = '', udid = null } = {}) {
     });
     job = { kind, udid, step: 'Starting…', percent: null, twoFactor: null, startedAt: Date.now(), child };
     child.stdin.write(`${JSON.stringify({ password })}\n`);
+    logLine(`${kind} started (pid ${child.pid})`);
 
     return new Promise((resolve, reject) => {
         let result = null;
         let failure = null;
         let buffer = '';
+        // The helper has no timeouts of its own: if Apple stops answering it just waits forever, with
+        // the screen stuck on one step. Give up when a step makes no progress for too long (waiting
+        // for you to type a 2FA code doesn't count).
+        let stepAt = Date.now();
+        const limit = kind === 'install' ? STALL_INSTALL_MS : STALL_MS;
+        const watchdog = setInterval(() => {
+            if (!job || job.child !== child || job.twoFactor || Date.now() - stepAt < limit) return;
+            failure = `Apple didn't answer while "${job.step}" for ${Math.round(limit / 1000)} seconds, so Market stopped it. Try again; if it keeps happening, check ${LOG_FILE}.`;
+            logLine(`stalled at "${job.step}"; killing the helper`);
+            child.kill();
+        }, 5000);
         child.stdout.on('data', (chunk) => {
             buffer += chunk;
             let nl = buffer.indexOf('\n');
@@ -104,18 +128,39 @@ function runHelper(kind, args, { password = '', udid = null } = {}) {
                 } catch {
                     continue;
                 }
-                if (ev.event === 'status') job.step = ev.text;
-                else if (ev.event === 'progress') job.percent = ev.percent;
-                else if (ev.event === 'twoFactor') job.twoFactor = ev.params;
-                else if (ev.event === 'done') result = ev;
-                else if (ev.event === 'error') failure = ev.message;
+                if (ev.event === 'status') {
+                    job.step = ev.text;
+                    stepAt = Date.now();
+                    logLine(`step: ${ev.text}`);
+                } else if (ev.event === 'progress') {
+                    job.percent = ev.percent;
+                    stepAt = Date.now();
+                } else if (ev.event === 'twoFactor') {
+                    job.twoFactor = ev.params;
+                    logLine('Apple asked for a 2FA code');
+                } else if (ev.event === 'done') {
+                    result = ev;
+                    logLine('helper reported done');
+                    // The helper's stdin reader keeps it alive after it is finished, so close its input and
+                    // stop it ourselves instead of waiting for an exit that never comes.
+                    child.stdin.end();
+                    setTimeout(() => child.kill(), 1500);
+                } else if (ev.event === 'error') {
+                    failure = ev.message;
+                    logLine(`error: ${ev.message}`);
+                }
             }
         });
         const log = [];
-        child.stderr.on('data', (chunk) => log.push(String(chunk)));
+        child.stderr.on('data', (chunk) => {
+            log.push(String(chunk));
+            logLine(`stderr: ${String(chunk).trim()}`);
+        });
         child.on('error', (e) => (failure = e.message));
         child.on('close', (code) => {
+            clearInterval(watchdog);
             job = null;
+            logLine(`${kind} ended (exit ${code})`);
             if (result) return resolve(result);
             if (log.length) console.log(`[sideload] ${log.join('').slice(-2000)}`);
             reject(new Error(explain(failure || `The sideloading helper stopped (${code})`)));
@@ -133,7 +178,7 @@ function answerTwoFactor(response) {
 
 function cancel() {
     queue.length = 0;
-    if (job) job.child.kill();
+    if (job?.child) job.child.kill();
 }
 
 /** Signs in to Apple once (2FA if Apple asks) and remembers the Apple ID and password. */
@@ -171,6 +216,9 @@ async function pump() {
     if (job || !queue.length) return;
     const { udid, auto } = queue.shift();
     const { appleId } = load();
+    // Show the install as running from the click on. Getting the app ready can take a while before the
+    // helper starts, and with no job the button used to look like it had stopped.
+    job = { kind: 'install', udid, step: 'Getting the control app ready…', percent: null, twoFactor: null, startedAt: Date.now(), child: null };
     // Stop the phone's control app and pause auto-connect while installing: the phone won't finish
     // an install while Market keeps launching the app it's replacing.
     try {
@@ -190,6 +238,7 @@ async function pump() {
             devices?.get(udid).log(auto ? 'Re-signed the control app' : 'Installed the control app');
         } catch {}
     } catch (e) {
+        if (job && !job.child) job = null; // failed before the helper started
         if (auto) autoTried.set(udid, Date.now());
         lastError = { kind: 'install', udid, message: e.message, at: Date.now() };
         try {

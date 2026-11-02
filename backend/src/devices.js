@@ -13,7 +13,10 @@ const setup = require('./setup');
 const controlApp = require('./controlapp');
 
 const NICKNAMES_FILE = path.join(DATA_DIR, 'nicknames.json');
+const KNOWN_FILE = path.join(DATA_DIR, 'known-phones.json'); // udid -> { name, model, iosVersion }
 const ACTION_RETRY_MS = 8000;
+const ERROR_RETRY_MS = 15000;
+const ERROR_RETRIES = 5;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -86,6 +89,10 @@ class Device {
         this.apps = null; // cached installed apps
         this.connection = null; // 'usb' | 'wifi' while connected
         this.mode = 'usb'; // the connection choice from Setup: 'usb' or 'wifi' (USB + Wi-Fi)
+        this.wifiReady = false; // Apple's service already sees it on Wi-Fi, so the cable can come out
+        this.lastTransport = null; // 'usb' | 'wifi': how it was last connected
+        this.errorAt = 0;
+        this.errorRetries = 0; // automatic retries since the last good start
     }
 
     log(line) {
@@ -112,6 +119,7 @@ class Device {
             mjpegPort: this.mjpegPort,
             connection: this.connection,
             mode: this.mode,
+            canUnplug: this.connection === 'usb' && this.mode === 'wifi' && this.wifiReady,
             size: this.wda?.size,
             lastActivity: this.lastActivity,
             expiresAt,
@@ -125,13 +133,49 @@ class DeviceManager {
         this.config = config;
         this.devices = new Map();
         this.nicknames = readJson(NICKNAMES_FILE, {});
+        this.known = readJson(KNOWN_FILE, {});
         this.nextSlot = 0;
         this.tunnel = null;
         this.lastListError = '';
         this.wifi = null; // set by the server (wifi.js)
     }
 
+    // Phones seen before stay in the list while they're away, so one that is unplugged or waiting
+    // on Wi-Fi shows as offline instead of vanishing (and being set up all over again).
+    loadKnown() {
+        for (const [udid, info] of Object.entries(this.known)) {
+            if (this.devices.has(udid)) continue;
+            const device = new Device(udid, this.nextSlot++);
+            device.online = false;
+            device.status = 'offline';
+            device.model = info.model || '';
+            device.iosVersion = info.iosVersion || '';
+            device.name = this.nicknames[udid] || info.name || device.name;
+            if (this.wifi) device.mode = this.wifi.mode(udid);
+            this.devices.set(udid, device);
+        }
+    }
+
+    remember(device) {
+        const next = { name: device.name, model: device.model, iosVersion: device.iosVersion };
+        const old = this.known[device.udid];
+        if (old && old.name === next.name && old.model === next.model && old.iosVersion === next.iosVersion) return;
+        this.known[device.udid] = next;
+        writeJson(KNOWN_FILE, this.known);
+    }
+
+    /** Removes a phone that is away from the list (it comes back by itself if it connects again). */
+    forget(udid) {
+        const device = this.get(udid);
+        if (device.online) throw new Error('Unplug it or switch it off first');
+        this.stopProcesses(device);
+        this.devices.delete(udid);
+        delete this.known[udid];
+        writeJson(KNOWN_FILE, this.known);
+    }
+
     start() {
+        this.loadKnown();
         if (this.config.startTunnel) this.startTunnel();
         const tick = async () => {
             await this.refresh().catch(() => {});
@@ -146,6 +190,9 @@ class DeviceManager {
         this.tunnel = goios.spawnLong(['tunnel', 'start', '--userspace'], {
             onLog: (l) => {
                 if (/error|fatal/i.test(l)) console.log('[tunnel]', l);
+                // Pulling the cable tears down that phone's tunnel and go-ios then keeps retrying its dead
+                // ports instead of building a new one over Wi-Fi. A fresh tunnel process finds the phone again.
+                if (/tearing down tunnel/i.test(l)) this.restartTunnel('a phone\'s tunnel went down');
             },
         });
         this.tunnel.on('exit', (code) => {
@@ -153,6 +200,19 @@ class DeviceManager {
             this.tunnel = null;
             this.tunnelRestart = setTimeout(() => this.startTunnel(), 10000);
         });
+    }
+
+    /** Starts the tunnel process afresh (at most once every 20 s), so phones get new tunnels. */
+    restartTunnel(reason) {
+        if (!this.tunnel || Date.now() - (this.tunnelRestartedAt || 0) < 20000) return;
+        this.tunnelRestartedAt = Date.now();
+        console.log(`[tunnel] restarting: ${reason}`);
+        const old = this.tunnel;
+        old.removeAllListeners('exit');
+        old.kill();
+        this.tunnel = null;
+        clearTimeout(this.tunnelRestart);
+        this.tunnelRestart = setTimeout(() => this.startTunnel(), 1000);
     }
 
     list() {
@@ -197,23 +257,40 @@ class DeviceManager {
             if (this.wifi) {
                 device.mode = this.wifi.mode(udid);
                 device.connection = this.wifi.proxy.connectionOf(udid);
+                device.wifiReady = this.wifi.proxy.networkUdids().has(udid);
             }
+            this.remember(device);
             if (!device.online) {
                 device.online = true;
                 device.status = 'idle';
                 device.log(`Phone reconnected${device.connection === 'wifi' ? ' over Wi-Fi' : ''}`);
+                // Cable out (or in): the tunnel built over the old connection is dead, so make a new one.
+                if (device.connection && device.lastTransport && device.connection !== device.lastTransport)
+                    this.restartTunnel(`${device.name} switched to ${device.connection}`);
             }
+            if (device.connection) device.lastTransport = device.connection;
             if (!this.config.autoConnect) continue;
             // Phones waiting on you are re-checked every few seconds, so they continue by themselves.
             const retryAction = device.status === 'action' && Date.now() - device.actionAt > ACTION_RETRY_MS;
-            if (device.status === 'idle' || retryAction) this.connect(udid).catch(() => {});
+            // A failed start (often just the tunnel not being up yet) is tried again a few times by itself.
+            const retryError =
+                device.status === 'error' &&
+                device.errorRetries < ERROR_RETRIES &&
+                Date.now() - device.errorAt > ERROR_RETRY_MS;
+            if (retryError) {
+                device.errorRetries++;
+                device.log(`Trying again (${device.errorRetries}/${ERROR_RETRIES})`);
+            }
+            if (device.status === 'idle' || retryAction || retryError) this.connect(udid).catch(() => {});
         }
 
         for (const device of this.devices.values()) {
+            if (this.wifi) device.mode = this.wifi.mode(device.udid); // also for phones that are away
             if (!seen.has(device.udid) && device.online) {
                 device.log('Phone disconnected');
                 device.online = false;
                 device.connection = null;
+                device.wifiReady = false;
                 this.stopProcesses(device);
                 device.status = 'offline';
             }
@@ -250,6 +327,7 @@ class DeviceManager {
         device.name = name;
         this.nicknames[udid] = name;
         writeJson(NICKNAMES_FILE, this.nicknames);
+        this.remember(device);
     }
 
     connect(udid, opts) {
@@ -413,7 +491,20 @@ class DeviceManager {
             }
             device.status = 'ready';
             device.step = '';
+            device.errorRetries = 0;
             device.log(`Ready (screen ${client.size.width}x${client.size.height} pt)`);
+            this.remember(device);
+            // First time over the cable with no choice made yet: switch Wi-Fi on, so the phone keeps
+            // working once it is unplugged and the one USB port is free for the next phone.
+            if (this.wifi && device.connection === 'usb' && !this.wifi.data[udid]) {
+                this.wifi
+                    .setMode(udid, 'wifi')
+                    .then(() => {
+                        device.mode = 'wifi';
+                        device.log('Wi-Fi switched on: you can unplug it once it shows on Wi-Fi');
+                    })
+                    .catch((e) => device.log(`Could not switch Wi-Fi on: ${e.message}`));
+            }
         } catch (e) {
             this.stopProcesses(device);
             device.step = '';
@@ -425,6 +516,7 @@ class DeviceManager {
             } else {
                 device.status = 'error';
                 device.error = e.message;
+                device.errorAt = Date.now();
                 device.log(`Connect failed: ${e.message}`);
             }
             throw e;

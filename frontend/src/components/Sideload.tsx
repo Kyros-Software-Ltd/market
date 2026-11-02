@@ -161,13 +161,19 @@ export function SideloadButton({ device, label = 'Install' }: { device: Device; 
     const job = sideload.job?.udid === device.udid ? sideload.job : null;
     if (job)
         return (
-            <span className="row" style={{ justifyContent: 'center' }}>
-                <Spinner size="sm" color="current" />
-                <span className="mono small">
-                    {job.step}
-                    {job.percent != null && job.percent > 0 ? ` ${job.percent}%` : ''}
+            <div className="col" style={{ gap: 6, alignItems: 'flex-end' }}>
+                <span className="row" style={{ justifyContent: 'center' }}>
+                    <Spinner size="sm" color="current" />
+                    <span className="small">
+                        {job.step}
+                        {job.percent != null && job.percent > 0 ? ` ${job.percent}%` : ''}
+                    </span>
                 </span>
-            </span>
+                <span className="small muted" style={{ maxWidth: 280, textAlign: 'right' }}>
+                    When it finishes, trust it on the phone: Settings → General → VPN & Device Management → your Apple
+                    ID → Trust.
+                </span>
+            </div>
         );
     if (sideload.queued.includes(device.udid))
         return <span className="mono small muted">Waiting for the phone before it…</span>;

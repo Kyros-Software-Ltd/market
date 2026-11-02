@@ -1,14 +1,14 @@
 'use client';
 import { Button, Card } from '@heroui/react';
-import { Cable, Check as CheckIcon, Download, FolderOpen, Smartphone, Wifi } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { Cable, Check as CheckIcon, ChevronDown, Download, FolderOpen, Smartphone, Wifi } from 'lucide-react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { AccountRow } from '@/components/Account';
 import { StatusBadge } from '@/components/common';
 import { PhoneState } from '@/components/PhoneState';
 import { AppleIdPanel } from '@/components/Sideload';
 import { VersionRow } from '@/components/Update';
 import { Panel, SelectField, Toggle } from '@/components/ui';
-import { type Device, get, post, type SetupInfo } from '@/lib/api';
+import { type Device, del, get, post, type SetupInfo } from '@/lib/api';
 import { modelName } from '@/lib/format';
 import { useAction, useStore } from '@/lib/store';
 
@@ -18,6 +18,7 @@ const CONNECTION_OPTIONS = [
 ];
 
 function connectionText(d: Device) {
+    if (d.canUnplug) return 'On Wi-Fi too. You can unplug it now.';
     if (d.mode !== 'wifi') return d.online ? 'Connected by USB' : 'Not connected';
     if (d.connection === 'wifi') return 'Connected over Wi-Fi';
     if (d.connection === 'usb') return 'Connected by USB · uses Wi-Fi when unplugged';
@@ -102,7 +103,7 @@ function FoundOnWifi() {
 
 // While a phone is plugged in, Windows' "Apple Mobile Device Ethernet" adapter makes Apple's service
 // lose phones on Wi-Fi. Market doesn't use it, so one click (and a Windows admin prompt) switches it off.
-function WifiAdapterFix() {
+export function WifiAdapterFix() {
     const act = useAction();
     const [needed, setNeeded] = useState(false);
     useEffect(() => {
@@ -137,15 +138,81 @@ function WifiAdapterFix() {
     );
 }
 
-function Step({ n, done, title, children }: { n: number; done: boolean; title: string; children: ReactNode }) {
+type StepState = 'done' | 'current' | 'todo';
+
+// A finished step folds down to one line; the step you are on is open and marked.
+function Step({
+    n,
+    state,
+    title,
+    summary,
+    children,
+}: {
+    n: number;
+    state: StepState;
+    title: string;
+    summary: string;
+    children: ReactNode;
+}) {
+    const [open, setOpen] = useState(state !== 'done');
+    const last = useRef(state);
+    useEffect(() => {
+        if (last.current !== state) {
+            last.current = state;
+            setOpen(state !== 'done');
+        }
+    }, [state]);
     return (
-        <Card className={`panel step ${done ? 'done' : ''}`}>
-            <div className="step-num">{done ? <CheckIcon strokeWidth={3} /> : n}</div>
+        <Card className={`panel step ${state}`}>
+            <div className="step-num">{state === 'done' ? <CheckIcon strokeWidth={3} /> : n}</div>
             <div className="grow">
-                <h3>{title}</h3>
-                {children}
+                <div className="row" style={{ minHeight: 26 }}>
+                    <h3 className="grow" style={{ margin: 0 }}>
+                        {title}
+                    </h3>
+                    {state === 'done' && (
+                        <Button size="sm" variant="ghost" aria-expanded={open} onPress={() => setOpen((v) => !v)}>
+                            {open ? 'Hide' : 'Show'}
+                            <ChevronDown size={14} style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
+                        </Button>
+                    )}
+                </div>
+                {state === 'done' && !open && <p className="dim">{summary}</p>}
+                {open && <div className="step-body">{children}</div>}
             </div>
         </Card>
+    );
+}
+
+// Where you are and what to do next, above the steps.
+function Progress({ done, next, onFinish }: { done: boolean[]; next: string; onFinish: () => void }) {
+    const count = done.filter(Boolean).length;
+    const finished = count === done.length;
+    return (
+        <div className="setup-progress">
+            <div
+                className="setup-bar"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={done.length}
+                aria-valuenow={count}
+            >
+                {done.map((d, i) => (
+                    <span key={i} className={d ? 'on' : ''} />
+                ))}
+            </div>
+            <div className="row">
+                <div className="grow">
+                    <div style={{ fontWeight: 600 }}>{finished ? 'All set' : `${count} of ${done.length} done`}</div>
+                    <div className="small dim">{finished ? 'Your phones are ready to use.' : `Next: ${next}`}</div>
+                </div>
+                {finished && (
+                    <Button size="sm" variant="primary" onPress={onFinish}>
+                        View phones
+                    </Button>
+                )}
+            </div>
+        </div>
     );
 }
 
@@ -153,7 +220,7 @@ function Step({ n, done, title, children }: { n: number; done: boolean; title: s
 const openExternal = (url: string) => window.open(url, '_blank', 'noopener');
 
 export function SetupPage({ setup }: { setup: SetupInfo | null }) {
-    const { status, sideload } = useStore();
+    const { status, sideload, go } = useStore();
     const act = useAction();
     const [openAtLogin, setOpenAtLogin] = useState<boolean | null>(null);
     const [desktop, setDesktop] = useState(false);
@@ -173,20 +240,37 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
         status.devices.every((d) => !(d.status === 'action' && d.action?.kind === 'install'));
     const allReady = status.devices.length > 0 && status.devices.every((d) => d.status === 'ready');
 
+    const usbDone = !!s?.usbOk;
+    const appDone = !!sideload?.appleId && phonesHaveApp;
+    const flags = [usbDone, appDone, allReady];
+    const firstOpen = flags.findIndex((x) => !x);
+    const stateOf = (i: number): StepState => (flags[i] ? 'done' : i === firstOpen ? 'current' : 'todo');
+    const nextText = ['install the Apple USB driver', 'sign in with a spare Apple ID', 'plug in and unlock a phone'][
+        Math.max(0, firstOpen)
+    ];
+
     return (
         <>
             <div className="page-head">
                 <div>
                     <h1>Setup</h1>
+                    <p>Three steps, once per phone. Finished steps fold away.</p>
                 </div>
             </div>
 
             <div className="steps">
-                <Step n={1} done={!!s?.usbOk} title="Apple USB driver">
+                <Progress done={flags} next={nextText} onFinish={() => go('phones')} />
+
+                <Step
+                    n={1}
+                    state={stateOf(0)}
+                    title="Apple USB driver"
+                    summary="Installed. Windows can talk to iPhones."
+                >
                     <p className="dim">
-                        {s?.usbOk
+                        {usbDone
                             ? 'Installed. Windows can talk to iPhones.'
-                            : "Windows needs Apple's USB driver. Install the free Apple Devices app (or iTunes), then reopen Market."}
+                            : "Windows needs Apple's USB driver. Install the free Apple Devices app, then reopen Market."}
                     </p>
                     {s && !s.usbOk && (
                         <Button
@@ -196,16 +280,20 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
                             onPress={() => openExternal('https://apps.microsoft.com/detail/9np83lwlpz9k')}
                         >
                             <Download size={14} />
-                            Apple Devices
+                            Get Apple Devices
                         </Button>
                     )}
                 </Step>
 
-                <Step n={2} done={!!sideload?.appleId && phonesHaveApp} title="Control app">
+                <Step
+                    n={2}
+                    state={stateOf(1)}
+                    title="Control app"
+                    summary={`Signed in as ${sideload?.appleId ?? 'your Apple ID'}. Install it on each phone below.`}
+                >
                     <p className="dim">
-                        Each phone runs a small control app (WebDriverAgent, shown as "Market"), signed with a spare
-                        free Apple ID. Sign in here, then click Install on each phone; about a minute per phone.
-                        Plugged-in phones are re-signed by themselves before their 7 days run out.
+                        Each phone runs a small control app signed with a spare free Apple ID. Sign in, then press
+                        Install on each phone (about a minute).
                     </p>
                     <div className="mt-2.5">
                         {sideload?.available ? (
@@ -219,11 +307,24 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
                     </div>
                 </Step>
 
-                <Step n={3} done={allReady} title="Phones">
-                    <p className="dim">
-                        Plug each iPhone in and unlock it; each card below says exactly what to tap. Set Auto-Lock to
-                        Never and turn on Do Not Disturb. To go cable-free, set a phone to USB + Wi-Fi while it's
-                        plugged in: after that it connects over Wi-Fi whenever it's unplugged.
+                <Step
+                    n={3}
+                    state={stateOf(2)}
+                    title="Phones"
+                    summary={`${status.devices.length} phone${status.devices.length === 1 ? '' : 's'} ready.`}
+                >
+                    <ol className="checklist">
+                        <li>Plug the phone in with a data cable and unlock it.</li>
+                        <li>Tap Trust This Computer on the phone.</li>
+                        <li>In Settings, set Auto-Lock to Never and turn on Do Not Disturb.</li>
+                        <li>
+                            After Install finishes, trust the app: Settings → General → VPN & Device Management → your
+                            Apple ID → Trust.
+                        </li>
+                    </ol>
+                    <p className="small muted">
+                        For cable-free use, set a phone to USB + Wi-Fi while it is plugged in. It then reconnects over
+                        Wi-Fi whenever it is unplugged.
                     </p>
                     <div className="col" style={{ marginTop: 12, gap: 8 }}>
                         {status.devices.length ? (
@@ -249,19 +350,27 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
                                             </span>
                                         </div>
                                         <ConnectionPicker device={d} />
+                                        {!d.online && (
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onPress={() => act(() => del(`/devices/${d.udid}`), `Removed ${d.name}`)}
+                                            >
+                                                Forget
+                                            </Button>
+                                        )}
                                     </div>
                                     {d.status !== 'ready' && (
-                                        <div style={{ borderTop: '1px solid var(--border)' }}>
+                                        <div style={{ borderTop: 'var(--hairline)' }}>
                                             <PhoneState device={d} compact />
                                         </div>
                                     )}
                                 </div>
                             ))
                         ) : (
-                            <span className="small muted">No phones connected yet.</span>
+                            <span className="small muted">No phones yet. Plug one in and it appears here.</span>
                         )}
                         <FoundOnWifi />
-                        <WifiAdapterFix />
                     </div>
                 </Step>
 

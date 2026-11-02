@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "tactile-design": {
+      "source": "kosta4a/tactile-design",
+      "sourceType": "github",
+      "skillPath": "skills/tactile-design/SKILL.md",
+      "computedHash": "444045c7e006f0eb8444939ea16d4911adc7fa3f3e9975f3d9f1c89c0931fe8e"
+    }
+  }
+}

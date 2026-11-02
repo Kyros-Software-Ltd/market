@@ -388,4 +388,6 @@ async fn main() {
         }
         _ => fail("Usage: market-sideload login|install|forget --apple-id <email> ..."),
     }
+    // The stdin reader task is a blocking thread; without this the runtime waits for it forever.
+    std::process::exit(0);
 }

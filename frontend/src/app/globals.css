@@ -1433,3 +1433,379 @@ main {
         right: auto;
     }
 }
+
+/* ======================================================================
+   Tactile layer (tactile-design skill). Raised things are a fine ring plus a
+   crisp 1px drop, never a border or a soft blur. Each edge and fill comes
+   from the surface it sits on, so the dark scope (sidebar, phone screens)
+   redeclares them. Controls squeeze when pressed; hover is colour only.
+   ====================================================================== */
+:root,
+[data-theme="light"] {
+    --shadow-ink: 9 9 11;
+    --btn-fill: #ffffff;
+    --btn-fill-hover: #fafafa;
+    --well-fill: #f4f4f5;
+    --well-fill-focus: #ececef;
+    --primary-bg: #09090b;
+    --primary-fg: #fafafa;
+    --primary-hover: color-mix(in oklab, var(--primary-bg) 93%, var(--primary-fg));
+    --focus-ring: #71717a;
+    --danger-text: #b91c1c;
+    --shadow-button: 0 1px 2px 0 rgb(var(--shadow-ink) / 0.12), 0 0 0 1px rgb(var(--shadow-ink) / 0.08);
+    --shadow-primary: 0 0 0 1px #ffffff;
+    --shadow-card:
+        0 0 0 1px rgb(var(--shadow-ink) / 0.07), 0 1px 2px 0 rgb(var(--shadow-ink) / 0.12),
+        0 3px 4px -2px rgb(var(--shadow-ink) / 0.08);
+    --shadow-table: 0 1px 2px 0 rgb(var(--shadow-ink) / 0.12);
+    --shadow-menu:
+        0 0 0 1px rgb(var(--shadow-ink) / 0.08), 0 1px 2px 0 rgb(var(--shadow-ink) / 0.12),
+        0 4px 8px -4px rgb(var(--shadow-ink) / 0.16);
+    --shadow-modal:
+        0 0 0 1px rgb(var(--shadow-ink) / 0.07), 0 1px 2px 0 rgb(var(--shadow-ink) / 0.14),
+        0 6px 8px -4px rgb(var(--shadow-ink) / 0.14);
+    --shadow-badge:
+        0 1px 2px 0 color-mix(in srgb, currentColor 16%, transparent),
+        0 0 0 1px color-mix(in srgb, currentColor 14%, transparent);
+    --press: cubic-bezier(0.23, 1, 0.32, 1);
+    --hairline: 0.5px solid #dcdce0;
+    --field-background: var(--well-fill);
+    --field-border-width: 0px;
+}
+.dark,
+[data-theme="dark"] {
+    --btn-fill: #232326;
+    --btn-fill-hover: #2a2a2e;
+    --well-fill: #1c1c1e;
+    --well-fill-focus: #232326;
+    --primary-bg: #f4f4f5;
+    --primary-fg: #0c0c0d;
+    --focus-ring: #8a8a93;
+    --danger-text: #f87171;
+    --shadow-button: 0 0 0 0.5px #3f3f44, 0 1px 2px 0 rgb(0 0 0 / 0.5);
+    --shadow-primary: 0 0 0 0.5px var(--primary-bg), 0 1px 2px 0 rgb(0 0 0 / 0.5);
+    --shadow-card: 0 0 0 0.5px #3a3a3e, 0 1px 2px 0 rgb(0 0 0 / 0.5), 0 3px 4px -2px rgb(0 0 0 / 0.4);
+    --shadow-table: 0 1px 2px 0 rgb(0 0 0 / 0.5);
+    --shadow-menu: 0 0 0 0.5px #48484d, 0 1px 2px 0 rgb(0 0 0 / 0.5), 0 4px 8px -4px rgb(0 0 0 / 0.5);
+    --shadow-modal: 0 0 0 0.5px #48484d, 0 1px 2px 0 rgb(0 0 0 / 0.5), 0 6px 8px -4px rgb(0 0 0 / 0.5);
+    --shadow-badge: 0 0 0 0.5px color-mix(in srgb, currentColor 34%, #000), 0 1px 2px 0 rgb(0 0 0 / 0.5);
+    --hairline: 0.5px solid #333336;
+    --field-background: var(--well-fill);
+}
+
+/* ---------- buttons: primary is the one black action, secondary is raised ---------- */
+.button {
+    transition:
+        transform 0.15s var(--press),
+        background-color 0.15s var(--press),
+        color 0.15s var(--press),
+        box-shadow 0.15s var(--press),
+        opacity 0.15s var(--press);
+}
+.button:active:not(:disabled):not([data-disabled="true"]) {
+    transform: scale(0.97);
+}
+.button--sm:active:not(:disabled):not([data-disabled="true"]) {
+    transform: scale(0.95);
+}
+.nav-item.button:active:not(:disabled) {
+    transform: scale(0.99);
+}
+.button:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+}
+.button--primary {
+    background: var(--primary-bg);
+    color: var(--primary-fg);
+    box-shadow: var(--shadow-primary);
+}
+.button--secondary,
+.quick-actions .button,
+.pair .button {
+    background: var(--btn-fill);
+    color: var(--foreground);
+    border: 0;
+    box-shadow: var(--shadow-button);
+}
+.button--danger-soft {
+    background: var(--btn-fill);
+    color: var(--danger-text);
+    box-shadow: var(--shadow-button);
+}
+.button--danger {
+    box-shadow: var(--shadow-primary);
+}
+.button[data-disabled="true"],
+.button:disabled {
+    opacity: 0.6;
+}
+@media (hover: hover) and (pointer: fine) {
+    .button--primary:hover:not(:disabled):not([data-disabled="true"]) {
+        background: var(--primary-hover);
+    }
+    .button--secondary:hover:not(:disabled):not([data-disabled="true"]),
+    .button--danger-soft:hover:not(:disabled):not([data-disabled="true"]),
+    .quick-actions .button:hover:not(:disabled),
+    .pair .button:hover:not(:disabled) {
+        background: var(--btn-fill-hover);
+    }
+}
+
+/* ---------- badges, pills and checkboxes ---------- */
+.chip {
+    box-shadow: var(--shadow-badge);
+}
+.pill {
+    height: 24px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--btn-fill);
+    box-shadow: var(--shadow-button);
+}
+.kind {
+    border: 0;
+    box-shadow: var(--shadow-button);
+    background: var(--btn-fill);
+}
+.checkbox__control:not([data-selected="true"]) {
+    background: var(--btn-fill);
+    box-shadow: var(--shadow-button);
+}
+.checkbox__control[data-selected="true"] {
+    box-shadow: var(--shadow-primary);
+}
+
+/* ---------- fields are wells: sunk, no border; focus deepens ---------- */
+.input,
+.textarea,
+.select__trigger {
+    background: var(--well-fill);
+    border: 0;
+    box-shadow: none;
+    transition:
+        background-color 0.15s var(--press),
+        box-shadow 0.15s var(--press);
+}
+.input:focus,
+.textarea:focus,
+.select__trigger[data-focused="true"],
+.select__trigger[data-open="true"],
+.select__trigger[aria-expanded="true"] {
+    background: var(--well-fill-focus);
+}
+.input:focus-visible,
+.textarea:focus-visible,
+.select__trigger:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* ---------- cards: raised by a ring and a short drop, no border ---------- */
+.panel.card {
+    border: 0;
+    box-shadow: var(--shadow-card);
+}
+.panel-head {
+    border-bottom: var(--hairline);
+}
+.list-row,
+.list-item,
+.feed-row {
+    border-bottom: var(--hairline);
+}
+.list-row:last-child,
+.list-item:last-child,
+.feed-row:last-child {
+    border-bottom: 0;
+}
+.media-item.card {
+    transition: transform 0.15s var(--press);
+}
+.media-item.card:active {
+    transform: scale(0.99);
+}
+.media-item.selected {
+    box-shadow: var(--shadow-card), 0 0 0 2px var(--foreground);
+}
+.list-row.clickable,
+.list-item {
+    transition: background-color 0.15s var(--press);
+}
+.list-row.clickable:active,
+.list-item:active {
+    background: var(--surface-tertiary);
+}
+
+/* ---------- tables: one raised frame, rows fade their own fill ---------- */
+.table-section .table-root,
+.table-root--primary {
+    background: var(--surface);
+    padding: 0;
+    border-radius: var(--tile-radius);
+    box-shadow:
+        0 0 0 0.5px var(--border-strong),
+        var(--shadow-table);
+}
+.table-root .table__scroll-container {
+    background: transparent;
+    box-shadow: none;
+    border-radius: inherit;
+}
+.table-root .table__header {
+    background: transparent;
+    border-bottom: var(--hairline);
+}
+.table-root th {
+    background: transparent;
+    color: var(--text-2);
+}
+.table-root td {
+    color: var(--text-2);
+    transition: background-color 0.15s var(--press);
+}
+.table-root td:first-child {
+    color: var(--foreground);
+}
+@media (hover: hover) and (pointer: fine) {
+    .table-root tr.clickable:hover td {
+        background: var(--surface-secondary);
+    }
+}
+.table-root tr.clickable:active td {
+    background: var(--surface-tertiary);
+}
+
+/* ---------- menus, selects and popovers float on a crisp shadow ---------- */
+.dropdown__popover,
+.select__popover,
+[class*="__popover"] {
+    background: var(--overlay);
+    border: 0;
+    border-radius: 8px;
+    box-shadow: var(--shadow-menu);
+}
+.dropdown__item,
+[class*="list-box-item"],
+[class*="list-box__item"] {
+    min-height: 36px;
+    border-radius: 6px;
+    transition: background-color 0.15s var(--press);
+}
+.dropdown__item:active,
+[class*="list-box-item"]:active,
+[class*="list-box__item"]:active {
+    background: var(--surface-tertiary);
+}
+.select__indicator {
+    transition: transform 0.2s var(--press);
+}
+.select__trigger[aria-expanded="true"] .select__indicator {
+    transform: rotate(180deg);
+}
+
+/* ---------- dialogs and sheets: fade in, rise, settle ---------- */
+.sheet {
+    background: rgb(0 0 0 / 0.3);
+    backdrop-filter: blur(2px);
+    animation: mk-fade 0.2s var(--press) both;
+}
+.dialog {
+    border: 0;
+    border-radius: 10px;
+    box-shadow: var(--shadow-modal);
+    animation: mk-rise 0.24s var(--press) both;
+}
+@keyframes mk-fade {
+    from {
+        opacity: 0;
+    }
+}
+@keyframes mk-rise {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+        filter: blur(4px);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .button:active,
+    .media-item.card:active {
+        transform: none;
+    }
+    .dialog {
+        animation: mk-fade 0.15s linear both;
+    }
+}
+
+/* ---------- setup: progress and step states ---------- */
+.setup-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 18px;
+    border-radius: var(--tile-radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-card);
+}
+.setup-bar {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+.setup-bar span {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--well-fill-focus);
+    transition: background-color 0.3s var(--press);
+}
+.setup-bar span.on {
+    background: var(--foreground);
+}
+.step.current .step-num {
+    background: var(--foreground);
+    color: var(--background);
+    border-color: var(--foreground);
+}
+.step.todo {
+    opacity: 0.75;
+}
+.step.todo:hover {
+    opacity: 1;
+}
+.step-body {
+    margin-top: 4px;
+}
+.checklist {
+    margin: 8px 0 10px;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    list-style: decimal;
+    color: var(--text-2);
+}
+@media (prefers-reduced-motion: reduce) {
+    .setup-bar span {
+        transition: none;
+    }
+}
+
+.page-inner > .panel {
+    margin-bottom: 18px;
+}
+
+/* setup: a phone's state as one row */
+.setup-state {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    padding: 12px 14px;
+}
+.setup-state-title {
+    font-weight: 600;
+}
+.setup-state p {
+    margin: 2px 0 0;
+}
