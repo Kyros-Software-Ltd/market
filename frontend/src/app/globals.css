@@ -582,15 +582,15 @@ main {
     align-items: center;
     padding: 10px 14px;
     border-radius: 9px;
-    border: 1px solid #fde68a;
-    background: #fffbeb;
-    color: #92400e;
+    border: 0.5px solid color-mix(in srgb, var(--amber) 45%, transparent);
+    background: color-mix(in srgb, var(--amber) 12%, var(--surface));
+    color: var(--foreground);
     margin-bottom: 18px;
 }
 .notice svg {
     width: 16px;
     height: 16px;
-    color: #d97706;
+    color: var(--amber);
 }
 .signin {
     min-height: 100vh;
@@ -622,12 +622,12 @@ main {
     font-weight: 600;
 }
 .notice.info {
-    border-color: #bfdbfe;
-    background: #eff6ff;
-    color: #1e40af;
+    border-color: color-mix(in srgb, #3b82f6 45%, transparent);
+    background: color-mix(in srgb, #3b82f6 12%, var(--surface));
+    color: var(--foreground);
 }
 .notice.info > svg {
-    color: #2563eb;
+    color: #60a5fa;
 }
 .notice .block {
     display: block;
@@ -1048,7 +1048,7 @@ main {
 .media-thumb {
     position: relative;
     aspect-ratio: 9 / 16;
-    background: #f4f4f5;
+    background: var(--surface-secondary);
     overflow: hidden;
 }
 .media-thumb img,
@@ -1071,7 +1071,8 @@ main {
     left: 8px;
     padding: 3px;
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.9);
+    background: rgb(0 0 0 / 0.55);
+    color: #fff;
 }
 .media-kind {
     position: absolute;

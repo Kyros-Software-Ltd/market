@@ -25,6 +25,7 @@ export interface Device {
     connection: 'usb' | 'wifi' | null; // how it's connected right now
     mode: 'usb' | 'wifi'; // Setup choice: USB only, or USB + Wi-Fi (cable first)
     canUnplug?: boolean; // on the cable, and already visible over Wi-Fi
+    wifiMissing?: boolean; // Wi-Fi is on but this PC can't see the phone on the network
     size?: { width: number; height: number };
     lastActivity: Activity | null;
     expiresAt: number | null;

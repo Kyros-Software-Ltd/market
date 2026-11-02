@@ -139,7 +139,7 @@ function Frame({ children }: { children: ReactNode }) {
             {focus && <PhoneControl udid={focus} />}
             <TwoFactorDialog />
 
-            <Toaster position="bottom-right" richColors closeButton duration={4500} />
+            <Toaster theme="dark" position="bottom-right" richColors closeButton duration={4500} />
         </div>
     );
 }

@@ -18,6 +18,7 @@ const CONNECTION_OPTIONS = [
 ];
 
 function connectionText(d: Device) {
+    if (d.wifiMissing) return "Wi-Fi is on, but this PC can't see the phone on the network yet. Keep it unlocked and on the same Wi-Fi as this PC. Don't unplug it yet.";
     if (d.canUnplug) return 'On Wi-Fi too. You can unplug it now.';
     if (d.mode !== 'wifi') return d.online ? 'Connected by USB' : 'Not connected';
     if (d.connection === 'wifi') return 'Connected over Wi-Fi';

@@ -56,6 +56,71 @@ class UsbmuxProxy {
         this.shown = new Set(); // Apple DeviceIDs currently shown to clients
         this.lastShown = new Map(); // udid -> the DeviceID it was last shown with
         this.gapUntil = new Map(); // udid -> end of its USB <-> Wi-Fi switch gap
+        // Phones Apple's service never lists on Wi-Fi (its discovery is flaky on Windows) are reached
+        // directly at the Wi-Fi address Market learned while they were plugged in.
+        this.manual = new Map(); // udid -> ip
+        this.manualIds = new Map(); // udid -> its made-up DeviceID
+        this.reachable = new Set(); // udids whose lockdown port answers right now
+    }
+
+    /** Wi-Fi phones to reach by address: [{ udid, ip }]. */
+    setManual(list) {
+        this.manual = new Map(list.map((m) => [m.udid, m.ip]));
+        for (const u of [...this.reachable]) if (!this.manual.has(u)) this.reachable.delete(u);
+        this.syncManual();
+        this.probe();
+    }
+
+    /** Keeps one made-up "Network" entry per manual phone, ids far above Apple's. */
+    syncManual() {
+        for (const [id, d] of [...this.devices]) if (d.synthetic) this.devices.delete(id);
+        for (const [udid, ip] of this.manual) {
+            // A phone keeps the same id for as long as Market runs. Renumbering them whenever any
+            // phone's settings were saved looked like every phone switching connection.
+            if (!this.manualIds.has(udid)) this.manualIds.set(udid, 1000000 + this.manualIds.size);
+            const id = this.manualIds.get(udid);
+            this.devices.set(id, {
+                udid,
+                network: true,
+                synthetic: true,
+                ip,
+                entry: {
+                    MessageType: 'Attached',
+                    DeviceID: id,
+                    Properties: {
+                        ConnectionType: 'Network',
+                        DeviceID: id,
+                        LocationID: 0,
+                        ProductID: 4776,
+                        SerialNumber: udid,
+                    },
+                },
+            });
+        }
+        this.publish();
+    }
+
+    /** Checks which manual phones answer on the lockdown port (62078) and republishes on change. */
+    probe() {
+        const results = [...this.manual].map(
+            ([udid, ip]) =>
+                new Promise((resolve) => {
+                    const s = net.connect({ host: ip, port: 62078 });
+                    const done = (ok) => {
+                        s.destroy();
+                        resolve(ok ? udid : null);
+                    };
+                    s.setTimeout(1500, () => done(false));
+                    s.on('connect', () => done(true));
+                    s.on('error', () => done(false));
+                }),
+        );
+        Promise.all(results).then((up) => {
+            const next = new Set(up.filter(Boolean));
+            const same = next.size === this.reachable.size && [...next].every((u) => this.reachable.has(u));
+            this.reachable = next;
+            if (!same) this.publish();
+        });
     }
 
     get address() {
@@ -67,6 +132,7 @@ class UsbmuxProxy {
         this.server.on('error', (e) => this.log(`usbmux proxy: ${e.message}`));
         this.server.listen(this.port, '127.0.0.1');
         this.watch();
+        setInterval(() => this.probe(), 4000).unref();
     }
 
     /** Which phones may connect over Wi-Fi. */
@@ -94,6 +160,11 @@ class UsbmuxProxy {
         if (!d) return false;
         if (!d.network) return true;
         if (!this.wifiAllowed.has(d.udid)) return false;
+        if (d.synthetic) {
+            // Only while it answers, and only when Apple's own service doesn't list the phone at all.
+            if (!this.reachable.has(d.udid)) return false;
+            return ![...this.devices.values()].some((o) => !o.synthetic && o.udid === d.udid);
+        }
         return ![...this.devices.values()].some((o) => !o.network && o.udid === d.udid); // cable first
     }
 
@@ -117,6 +188,9 @@ class UsbmuxProxy {
                 this.gapUntil.set(udid, now + SWITCH_GAP_MS);
                 setTimeout(() => {
                     this.gapUntil.delete(udid);
+                    // The gap did its job; forget the old connection, or the switch looks new again and
+                    // the phone is hidden for another gap, forever.
+                    this.lastShown.delete(udid);
                     this.publish();
                 }, SWITCH_GAP_MS + 50);
             }
@@ -163,7 +237,7 @@ class UsbmuxProxy {
         s.on('error', () => {});
         s.on('close', () => {
             this.devices.clear();
-            this.publish();
+            this.syncManual();
             setTimeout(() => this.watch(), 3000);
         });
     }
@@ -176,9 +250,12 @@ class UsbmuxProxy {
         const pendingList = new Set(); // ListDevices tags awaiting Apple's reply
         let listening = false;
 
+        let direct = null; // a plain TCP link to a manual (made-up) Wi-Fi phone, after its Connect
+
         const closeAll = () => {
             c.destroy();
             up.destroy();
+            direct?.destroy();
             this.listeners.delete(c);
         };
         c.on('error', closeAll);
@@ -206,6 +283,11 @@ class UsbmuxProxy {
                 if (pendingList.has(m.tag) && Array.isArray(m.body?.DeviceList)) {
                     pendingList.delete(m.tag);
                     const list = m.body.DeviceList.filter((e) => this.visible(e.DeviceID)).map((e) => this.rewrite(e));
+                    // Apple doesn't know the made-up Wi-Fi phones, so add the shown ones to its answer.
+                    for (const id of this.shown) {
+                        const d = this.devices.get(id);
+                        if (d?.synthetic) list.push(this.rewrite(d.entry));
+                    }
                     c.write(frame({ ...m.body, DeviceList: list }, m.tag));
                 } else if (listening && (m.body?.MessageType === 'Attached' || m.body?.MessageType === 'Detached')) {
                     // Device events come from publish() so hidden Wi-Fi entries never leak through.
@@ -216,6 +298,11 @@ class UsbmuxProxy {
         });
 
         c.on('data', (d) => {
+            if (direct) {
+                direct.sent = (direct.sent || 0) + d.length;
+                direct.write(d);
+                return;
+            }
             if (raw) {
                 up.write(d);
                 return;
@@ -234,6 +321,39 @@ class UsbmuxProxy {
                         if (!c.destroyed)
                             for (const id of this.shown) c.write(frame(this.rewrite(this.devices.get(id).entry), 0));
                     }, 50);
+                }
+                if (type === 'Connect' && this.devices.get(body.DeviceID)?.synthetic) {
+                    // Straight to the phone's Wi-Fi address; the port arrives in network byte order.
+                    const n = body.PortNumber;
+                    const port = ((n & 0xff) << 8) | ((n >> 8) & 0xff);
+                    const ip = this.devices.get(body.DeviceID).ip;
+                    const target = net.connect({ host: ip, port });
+                    let rx = 0;
+                    let tx = 0;
+                    target.once('connect', () => {
+                        direct = target;
+                        this.log(`direct ${ip}:${port} connected`);
+                        c.write(frame({ MessageType: 'Result', Number: 0 }, tag));
+                    });
+                    target.on('data', (b) => {
+                        rx += b.length;
+                        c.write(b);
+                    });
+                    target.on('error', (e) => {
+                        this.log(`direct ${ip}:${port} error ${e.code || e.message} (phone sent ${rx} bytes)`);
+                        if (!direct) c.write(frame({ MessageType: 'Result', Number: 3 }, tag));
+                        closeAll();
+                    });
+                    // The phone usually answers and then closes. End the client side gracefully so it still
+                    // reads everything that was sent (destroying it here made the client see an abort).
+                    target.on('end', () => c.end());
+                    target.on('close', () => {
+                        this.log(`direct ${ip}:${port} closed (phone sent ${rx} bytes, client sent ${target.sent || 0})`);
+                        c.end();
+                        up.destroy();
+                        this.listeners.delete(c);
+                    });
+                    return;
                 }
                 if (type === 'Connect') {
                     raw = 'pending';

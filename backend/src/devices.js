@@ -90,6 +90,7 @@ class Device {
         this.connection = null; // 'usb' | 'wifi' while connected
         this.mode = 'usb'; // the connection choice from Setup: 'usb' or 'wifi' (USB + Wi-Fi)
         this.wifiReady = false; // Apple's service already sees it on Wi-Fi, so the cable can come out
+        this.usbSince = 0; // when it last started being connected by cable
         this.lastTransport = null; // 'usb' | 'wifi': how it was last connected
         this.errorAt = 0;
         this.errorRetries = 0; // automatic retries since the last good start
@@ -120,6 +121,9 @@ class Device {
             connection: this.connection,
             mode: this.mode,
             canUnplug: this.connection === 'usb' && this.mode === 'wifi' && this.wifiReady,
+            // Wi-Fi is on and it has been plugged in a while, yet Apple's service can't see it on the network.
+            wifiMissing:
+                this.connection === 'usb' && this.mode === 'wifi' && !this.wifiReady && Date.now() - this.usbSince > 30000,
             size: this.wda?.size,
             lastActivity: this.lastActivity,
             expiresAt,
@@ -190,9 +194,6 @@ class DeviceManager {
         this.tunnel = goios.spawnLong(['tunnel', 'start', '--userspace'], {
             onLog: (l) => {
                 if (/error|fatal/i.test(l)) console.log('[tunnel]', l);
-                // Pulling the cable tears down that phone's tunnel and go-ios then keeps retrying its dead
-                // ports instead of building a new one over Wi-Fi. A fresh tunnel process finds the phone again.
-                if (/tearing down tunnel/i.test(l)) this.restartTunnel('a phone\'s tunnel went down');
             },
         });
         this.tunnel.on('exit', (code) => {
@@ -200,19 +201,6 @@ class DeviceManager {
             this.tunnel = null;
             this.tunnelRestart = setTimeout(() => this.startTunnel(), 10000);
         });
-    }
-
-    /** Starts the tunnel process afresh (at most once every 20 s), so phones get new tunnels. */
-    restartTunnel(reason) {
-        if (!this.tunnel || Date.now() - (this.tunnelRestartedAt || 0) < 20000) return;
-        this.tunnelRestartedAt = Date.now();
-        console.log(`[tunnel] restarting: ${reason}`);
-        const old = this.tunnel;
-        old.removeAllListeners('exit');
-        old.kill();
-        this.tunnel = null;
-        clearTimeout(this.tunnelRestart);
-        this.tunnelRestart = setTimeout(() => this.startTunnel(), 1000);
     }
 
     list() {
@@ -258,15 +246,13 @@ class DeviceManager {
                 device.mode = this.wifi.mode(udid);
                 device.connection = this.wifi.proxy.connectionOf(udid);
                 device.wifiReady = this.wifi.proxy.networkUdids().has(udid);
+                if (device.connection === 'usb' && device.lastTransport !== 'usb') device.usbSince = Date.now();
             }
             this.remember(device);
             if (!device.online) {
                 device.online = true;
                 device.status = 'idle';
                 device.log(`Phone reconnected${device.connection === 'wifi' ? ' over Wi-Fi' : ''}`);
-                // Cable out (or in): the tunnel built over the old connection is dead, so make a new one.
-                if (device.connection && device.lastTransport && device.connection !== device.lastTransport)
-                    this.restartTunnel(`${device.name} switched to ${device.connection}`);
             }
             if (device.connection) device.lastTransport = device.connection;
             if (!this.config.autoConnect) continue;
@@ -452,6 +438,15 @@ class DeviceManager {
                 .catch((e) => device.log(`stream settings: ${e.message}`));
 
             controlApp.started(udid, bundleId);
+            // Remember its Wi-Fi address: Apple's service can't always find phones on Wi-Fi by itself.
+            if (this.wifi)
+                this.wifi.learnIp(
+                    udid,
+                    await client
+                        .status()
+                        .then((st) => st?.ios?.ip)
+                        .catch(() => null),
+                );
             device.wda = client;
             device.mjpegHost = '127.0.0.1';
             device.mjpegPort = mjpegPort;
@@ -516,6 +511,12 @@ class DeviceManager {
             } else {
                 device.status = 'error';
                 device.error = e.message;
+                // Some iOS versions hang up on every service connection made over Wi-Fi (the phone answers,
+                // then closes after the handshake). Retrying can't help, so say so and stop trying.
+                if (device.connection === 'wifi' && /forcibly closed|aborted|terminated abruptly|\bEOF\b|reset by peer/i.test(e.message)) {
+                    device.error = `${device.name} answers on Wi-Fi but its iOS (${device.iosVersion}) closes the connection when Market tries to control it. Plug it in with a cable to use it.`;
+                    device.errorRetries = ERROR_RETRIES;
+                }
                 device.errorAt = Date.now();
                 device.log(`Connect failed: ${e.message}`);
             }

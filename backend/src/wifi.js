@@ -25,6 +25,18 @@ class Wifi {
 
     syncProxy() {
         this.proxy.setWifiAllowed(Object.keys(this.data).filter((u) => this.mode(u) === 'wifi'));
+        this.proxy.setManual(
+            Object.entries(this.data)
+                .filter(([u, e]) => this.mode(u) === 'wifi' && e.ip)
+                .map(([udid, e]) => ({ udid, ip: e.ip })),
+        );
+    }
+
+    /** Remembers a phone's Wi-Fi address (read from its control app) so it can be reached without Apple's discovery. */
+    learnIp(udid, ip) {
+        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip || '') || !this.data[udid] || this.data[udid].ip === ip) return;
+        this.data[udid] = { ...this.data[udid], ip };
+        this.save();
     }
 
     save() {
@@ -62,6 +74,7 @@ class Wifi {
             const entry = this.data[udid] || {};
             if (via === 'usb') {
                 const r = await this.helper('enable', udid);
+                if (!r.enabled) throw new Error('The phone did not switch Wi-Fi connections on. Unlock it and try again.');
                 entry.wifiMac = r.wifiMac;
             } else if (!this.proxy.networkUdids().has(udid)) {
                 throw new Error('Plug the phone in once to switch on Wi-Fi');
