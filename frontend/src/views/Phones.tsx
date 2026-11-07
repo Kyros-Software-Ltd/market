@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Empty, FpsChip, StatusBadge } from '@/components/common';
 import { LiveScreen } from '@/components/LiveScreen';
 import { PhoneState } from '@/components/PhoneState';
-import { ActionMenu, Check, TextInput } from '@/components/ui';
+import { ActionMenu, Check, SelectField, TextInput } from '@/components/ui';
 import { control, type Device, get, post } from '@/lib/api';
 import { ClaudeCodeIcon, HomeIcon } from '@/lib/icons';
 import { useAction, useStore } from '@/lib/store';
@@ -93,7 +93,7 @@ export function PhonesPage() {
 }
 
 function PhoneCard({ device: d }: { device: Device }) {
-    const { status, selected, setSelected, setFocus, focus } = useStore();
+    const { status, selected, setSelected, setFocus, focus, toast } = useStore();
     const act = useAction();
     const isSelected = selected.has(d.udid);
     const live = d.status === 'ready';
@@ -172,6 +172,19 @@ function PhoneCard({ device: d }: { device: Device }) {
                         {connected ? <PowerOff size={14} /> : <Power size={14} />}
                     </Button>
                 )}
+            </div>
+            <div className="row" style={{ padding: '0 12px 8px', gap: 8 }}>
+                <span className="mono muted" style={{ fontSize: 11 }}>Control</span>
+                <SelectField
+                    value={d.enginePreference || 'auto'}
+                    onChange={(preference) => post(`/devices/${d.udid}/engine`, { preference }).catch((e: Error) => toast(e.message, true))}
+                    options={[
+                        { key: 'auto', label: 'Auto' },
+                        { key: 'wda', label: 'WDA' },
+                        ...(parseInt(d.iosVersion, 10) >= 27 ? [{ key: 'direct', label: 'Apple direct' }] : []),
+                    ]}
+                />
+                <span className="mono muted" style={{ fontSize: 10 }}>{d.engine === 'direct' ? 'Apple services' : d.engine === 'wda' ? 'WebDriverAgent' : ''}</span>
             </div>
             <div className="screen dark" data-theme="dark" onClick={() => setFocus(d.udid)}>
                 {live ? <LiveScreen udid={d.udid} engine={d.engine} onFps={setFps} /> : <PhoneState device={d} />}

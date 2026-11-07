@@ -84,6 +84,7 @@ class Device {
         this.error = '';
         this.wda = null;
         this.engine = null; // 'wda' | 'direct' while connected
+        this.enginePreference = 'auto'; // 'auto' | 'wda' | 'direct'
         this.procs = [];
         this.logs = [];
         this.connecting = null;
@@ -121,6 +122,7 @@ class Device {
             error: this.error,
             mjpegPort: this.mjpegPort,
             engine: this.engine,
+            enginePreference: this.enginePreference,
             connection: this.connection,
             mode: this.mode,
             canUnplug: this.connection === 'usb' && this.mode === 'wifi' && this.wifiReady,
@@ -157,6 +159,7 @@ class DeviceManager {
             device.status = 'offline';
             device.model = info.model || '';
             device.iosVersion = info.iosVersion || '';
+            device.enginePreference = info.enginePreference || 'auto';
             device.name = this.nicknames[udid] || info.name || device.name;
             if (this.wifi) device.mode = this.wifi.mode(udid);
             this.devices.set(udid, device);
@@ -164,9 +167,9 @@ class DeviceManager {
     }
 
     remember(device) {
-        const next = { name: device.name, model: device.model, iosVersion: device.iosVersion };
+        const next = { name: device.name, model: device.model, iosVersion: device.iosVersion, enginePreference: device.enginePreference };
         const old = this.known[device.udid];
-        if (old && old.name === next.name && old.model === next.model && old.iosVersion === next.iosVersion) return;
+        if (old && old.name === next.name && old.model === next.model && old.iosVersion === next.iosVersion && old.enginePreference === next.enginePreference) return;
         this.known[device.udid] = next;
         writeJson(KNOWN_FILE, this.known);
     }
@@ -240,6 +243,7 @@ class DeviceManager {
             if (!device) {
                 device = new Device(udid, this.nextSlot++);
                 this.devices.set(udid, device);
+                device.enginePreference = this.known[udid]?.enginePreference || 'auto';
                 device.log('Phone connected');
                 this.applyEntry(device, entry);
                 // iOS 17+ phones need the helper to mount the developer image; get it ready in the background.
@@ -317,6 +321,17 @@ class DeviceManager {
         this.nicknames[udid] = name;
         writeJson(NICKNAMES_FILE, this.nicknames);
         this.remember(device);
+    }
+
+    setEnginePreference(udid, preference) {
+        const device = this.get(udid);
+        if (!['auto', 'wda', 'direct'].includes(preference)) throw new Error('Choose Auto, WDA, or Apple direct');
+        if (preference === 'direct' && device.iosMajor < this.config.directControlMinIos)
+            throw new Error(`Apple direct control needs iOS ${this.config.directControlMinIos} or later`);
+        device.enginePreference = preference;
+        this.remember(device);
+        this.disconnect(udid);
+        if (device.online) this.connect(udid).catch(() => {});
     }
 
     connect(udid, opts) {
@@ -540,6 +555,8 @@ class DeviceManager {
 
     // iOS 27 lets a PC see and touch the phone through Apple's own services.
     usesDirectControl(device) {
+        if (device.enginePreference === 'wda') return false;
+        if (device.enginePreference === 'direct') return true;
         return device.iosMajor >= this.config.directControlMinIos;
     }
 

@@ -162,6 +162,10 @@ function createApp() {
             devices.rename(req.params.udid, String(req.body.name || '').trim());
         }),
     );
+    app.post(
+        '/api/devices/:udid/engine',
+        api((req) => devices.setEnginePreference(req.params.udid, String(req.body.preference || 'auto'))),
+    );
     app.get(
         '/api/devices/:udid/apps',
         api((req) => devices.listApps(req.params.udid, { refresh: req.query.refresh === '1' })),
