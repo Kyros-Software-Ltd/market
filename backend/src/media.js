@@ -145,8 +145,6 @@ const sendAutomation = {
     ],
     async run(ctx, p) {
         const bundleId = ctx.device.wdaBundleId;
-        if (ctx.device.engine === 'direct')
-            throw new Error('Sending media needs the control app, which iOS 27 phones run without. Not available on this phone yet.');
         if (!bundleId) throw new Error("The control app isn't running on this phone yet");
         const names = (p.names || []).map(safeName);
         ctx.log(`Copying ${names.length} file${names.length === 1 ? '' : 's'} to the phone`);

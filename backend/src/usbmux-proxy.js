@@ -15,6 +15,28 @@ const plist = require('plist');
 
 const SWITCH_GAP_MS = 6000; // longer than Market's 3 s device check, so it always notices
 
+/** IPv4 from Apple's usbmux NetworkAddress (sockaddr blob). */
+function ipFromNetworkAddress(addr) {
+    let buf = null;
+    if (Buffer.isBuffer(addr)) buf = addr;
+    else if (addr?.type === 'Buffer' && Array.isArray(addr.data)) buf = Buffer.from(addr.data);
+    else if (typeof addr === 'string') {
+        try {
+            buf = Buffer.from(addr, 'base64');
+        } catch {
+            return null;
+        }
+    }
+    if (!buf || buf.length < 8) return null;
+    // BSD sockaddr_in: len, AF_INET(2), port(2), addr(4)
+    if (buf[1] === 2) return `${buf[4]}.${buf[5]}.${buf[6]}.${buf[7]}`;
+    // Windows-style: AF_INET u16 LE at 0
+    if (buf.readUInt16LE(0) === 2) return `${buf[4]}.${buf[5]}.${buf[6]}.${buf[7]}`;
+    // Sometimes family is at offset 0 as a single byte
+    if (buf[0] === 2 && buf.length >= 8) return `${buf[4]}.${buf[5]}.${buf[6]}.${buf[7]}`;
+    return null;
+}
+
 function frame(obj, tag) {
     const body = Buffer.from(plist.build(obj), 'utf8');
     const h = Buffer.alloc(16);
@@ -61,6 +83,8 @@ class UsbmuxProxy {
         this.manual = new Map(); // udid -> ip
         this.manualIds = new Map(); // udid -> its made-up DeviceID
         this.reachable = new Set(); // udids whose lockdown port answers right now
+        this.learnedIps = new Map(); // udid -> ip from Apple's NetworkAddress (freshest)
+        this.onWifiIp = null; // optional (udid, ip) => void when a Network address is seen
     }
 
     /** Wi-Fi phones to reach by address: [{ udid, ip }]. */
@@ -155,6 +179,21 @@ class UsbmuxProxy {
         return new Set([...this.devices.values()].filter((d) => d.network).map((d) => d.udid));
     }
 
+    /** Best-known Wi-Fi IP for a phone (Apple NetworkAddress, else manual). */
+    wifiIpOf(udid) {
+        return this.learnedIps.get(udid) || this.manual.get(udid) || null;
+    }
+
+    rememberNetworkIp(udid, props) {
+        const ip = ipFromNetworkAddress(props?.NetworkAddress);
+        if (!ip || !udid) return;
+        if (this.learnedIps.get(udid) === ip) return;
+        this.learnedIps.set(udid, ip);
+        try {
+            this.onWifiIp?.(udid, ip);
+        } catch {}
+    }
+
     visible(id) {
         const d = this.devices.get(id);
         if (!d) return false;
@@ -223,11 +262,14 @@ class UsbmuxProxy {
             [msgs, buf] = split(Buffer.concat([buf, d]));
             for (const { body } of msgs) {
                 if (body?.MessageType === 'Attached') {
+                    const udid = body.Properties?.SerialNumber;
+                    const network = body.Properties?.ConnectionType === 'Network';
                     this.devices.set(body.DeviceID, {
-                        udid: body.Properties?.SerialNumber,
-                        network: body.Properties?.ConnectionType === 'Network',
+                        udid,
+                        network,
                         entry: body,
                     });
+                    if (network) this.rememberNetworkIp(udid, body.Properties);
                 } else if (body?.MessageType === 'Detached') {
                     this.devices.delete(body.DeviceID);
                 } else continue;
@@ -332,7 +374,6 @@ class UsbmuxProxy {
                     let tx = 0;
                     target.once('connect', () => {
                         direct = target;
-                        this.log(`direct ${ip}:${port} connected`);
                         c.write(frame({ MessageType: 'Result', Number: 0 }, tag));
                     });
                     target.on('data', (b) => {
@@ -340,7 +381,7 @@ class UsbmuxProxy {
                         c.write(b);
                     });
                     target.on('error', (e) => {
-                        this.log(`direct ${ip}:${port} error ${e.code || e.message} (phone sent ${rx} bytes)`);
+                        this.log(`wifi ${ip}:${port} error ${e.code || e.message} (phone sent ${rx} bytes)`);
                         if (!direct) c.write(frame({ MessageType: 'Result', Number: 3 }, tag));
                         closeAll();
                     });
@@ -348,7 +389,8 @@ class UsbmuxProxy {
                     // reads everything that was sent (destroying it here made the client see an abort).
                     target.on('end', () => c.end());
                     target.on('close', () => {
-                        this.log(`direct ${ip}:${port} closed (phone sent ${rx} bytes, client sent ${target.sent || 0})`);
+                        // Successful short lockdown chats are normal; only note empty/failed ones.
+                        if (rx < 64) this.log(`wifi ${ip}:${port} closed early (phone sent ${rx} bytes)`);
                         c.end();
                         up.destroy();
                         this.listeners.delete(c);

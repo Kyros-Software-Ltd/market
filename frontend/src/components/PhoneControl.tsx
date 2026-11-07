@@ -9,6 +9,7 @@ import {
     PanelLeft,
     PanelRight,
     Pencil,
+    Send,
     Square,
     Sun,
     Volume1,
@@ -16,7 +17,8 @@ import {
     X,
 } from 'lucide-react';
 // Full-size control of one phone: click = tap, drag = swipe, hold = long-press (sent as soon as
-// you've held still for HOLD_MS), hold then drag = drag (moving an app icon), wheel = scroll. Can mirror to selected phones and record what you do as a flow.
+// you've held still for HOLD_MS), hold then drag = drag (moving an app icon), wheel = scroll.
+// With the panel open, the PC keyboard types into the focused field on the phone.
 import { type MouseEvent as RMouseEvent, type WheelEvent as RWheelEvent, useEffect, useRef, useState } from 'react';
 import { control, get, post } from '@/lib/api';
 import { modelName, slug } from '@/lib/format';
@@ -64,7 +66,7 @@ function useDockSide() {
 
 export function PhoneControl({ udid }: { udid: string }) {
     const [side, flipSide] = useDockSide();
-    const { status, setFocus, selected, toast } = useStore();
+    const { status, setFocus, toast } = useStore();
     const act = useAction();
     const ask = usePrompt();
     const device = status.devices.find((d) => d.udid === udid);
@@ -101,17 +103,81 @@ export function PhoneControl({ udid }: { udid: string }) {
         return () => clearInterval(t);
     }, [udid]);
 
+    // Defined early so the keyboard listener can call it; body filled below once helpers exist.
+    const sendRef = useRef<(action: string, args?: Record<string, unknown>) => void>(() => {});
+
+    // PC keyboard → phone when the dock is open (and you're not typing in a Market field).
     useEffect(() => {
+        if (!ready) return;
+        let pending = '';
+        let flushTimer: ReturnType<typeof setTimeout> | null = null;
+        const flush = () => {
+            if (flushTimer) {
+                clearTimeout(flushTimer);
+                flushTimer = null;
+            }
+            if (!pending) return;
+            const chunk = pending;
+            pending = '';
+            sendRef.current('type', { text: chunk });
+        };
+        const named: Record<string, string> = {
+            Enter: 'return',
+            Backspace: 'backspace',
+            Delete: 'forwarddelete',
+            Tab: 'tab',
+            ArrowUp: 'up',
+            ArrowDown: 'down',
+            ArrowLeft: 'left',
+            ArrowRight: 'right',
+            Home: 'home',
+            End: 'end',
+            PageUp: 'pageup',
+            PageDown: 'pagedown',
+        };
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') close();
+            const t = e.target as HTMLElement | null;
+            if (t) {
+                const tag = t.tagName;
+                if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable) {
+                    if (e.key === 'Escape') close();
+                    return;
+                }
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                close();
+                return;
+            }
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+            const special = named[e.key];
+            if (special) {
+                e.preventDefault();
+                flush();
+                sendRef.current('keys', { keys: [{ key: special, modifiers: e.shiftKey ? ['shift'] : [] }] });
+                return;
+            }
+            if (e.key.length === 1) {
+                e.preventDefault();
+                pending += e.key;
+                if (flushTimer) clearTimeout(flushTimer);
+                flushTimer = setTimeout(flush, 40);
+            }
         };
         window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    });
+        return () => {
+            window.removeEventListener('keydown', onKey);
+            if (flushTimer) clearTimeout(flushTimer);
+            if (pending) sendRef.current('type', { text: pending });
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ready, udid]);
 
     if (!device) return null;
 
-    const targets = () => [...new Set([udid, ...(mirror ? selected : [])])];
+    const others = () =>
+        status.devices.filter((d) => d.udid !== udid && d.status === 'ready').map((d) => d.udid);
+    const targets = () => (mirror ? [udid, ...others()] : [udid]);
 
     // Each action you do while recording becomes a step, with the pause before it kept as a wait.
     function record(action: string, args: Step) {
@@ -147,6 +213,7 @@ export function PhoneControl({ udid }: { udid: string }) {
         record(action, args);
         control(action, targets(), args).catch((e: Error) => toast(e.message, true));
     }
+    sendRef.current = send;
 
     // Mouse position as 0-1 fractions of the phone screen, allowing for letterboxing.
     function toFraction(e: { clientX: number; clientY: number }) {
@@ -202,7 +269,8 @@ export function PhoneControl({ udid }: { udid: string }) {
                 if (press.current !== p) return;
                 p.held = true;
                 p.ring.classList.add('held');
-                send('longpress', { x: start.x, y: start.y, ms: 800 });
+                // Short hold — DeviceKit pauses the live stream for the whole longpress.
+                send('longpress', { x: start.x, y: start.y, ms: 450 });
             }, HOLD_MS),
         };
         press.current = p;
@@ -228,28 +296,27 @@ export function PhoneControl({ udid }: { udid: string }) {
         ripple(e);
         const end = toFraction(e);
         const moved = Math.hypot(e.clientX - p.px, e.clientY - p.py) >= STILL_PX;
-        const now = Date.now();
         if (p.held) {
             // The long-press already happened; dragging after it picks the thing up and moves it.
             if (moved) {
-                const ms = Math.min(2000, Math.max(250, now - (p.movedAt || now)));
-                send('drag', { x1: p.x, y1: p.y, x2: end.x, y2: end.y, hold: 600, ms });
+                send('drag', { x1: p.x, y1: p.y, x2: end.x, y2: end.y, hold: 400, ms: 180 });
             }
         } else if (moved) {
-            send('swipe', { x1: p.x, y1: p.y, x2: end.x, y2: end.y, ms: Math.min(1000, Math.max(120, now - p.t)) });
+            // Cap duration: mouse-drag time used to be sent as-is (up to 1s) and froze MJPEG.
+            send('swipe', { x1: p.x, y1: p.y, x2: end.x, y2: end.y, ms: 160 });
         } else {
             send('tap', { x: p.x, y: p.y });
         }
     }
 
     function onWheel(e: RWheelEvent) {
-        if (Date.now() - wheelAt.current < 700 || Math.abs(e.deltaY) < 4) return;
+        if (Date.now() - wheelAt.current < 400 || Math.abs(e.deltaY) < 4) return;
         wheelAt.current = Date.now();
         send(
             'swipe',
             e.deltaY > 0
-                ? { x1: 0.5, y1: 0.72, x2: 0.5, y2: 0.3, ms: 250 }
-                : { x1: 0.5, y1: 0.3, x2: 0.5, y2: 0.72, ms: 250 },
+                ? { x1: 0.5, y1: 0.72, x2: 0.5, y2: 0.3, ms: 140 }
+                : { x1: 0.5, y1: 0.3, x2: 0.5, y2: 0.72, ms: 140 },
         );
     }
 
@@ -311,7 +378,7 @@ export function PhoneControl({ udid }: { udid: string }) {
                         <LiveScreen
                             ref={imgRef}
                             udid={device.udid}
-                            engine={device.engine}
+                            profile="focus"
                             onFps={setFps}
                             onMouseDown={onDown}
                             onMouseMove={onMove}
@@ -386,7 +453,7 @@ export function PhoneControl({ udid }: { udid: string }) {
                         <TextInput
                             value={text}
                             onChange={setText}
-                            placeholder="Type on the phone…"
+                            placeholder={ready ? 'Type here or use your keyboard…' : 'Phone not ready'}
                             isDisabled={!ready}
                             onEnter={sendText}
                         />
@@ -394,10 +461,21 @@ export function PhoneControl({ udid }: { udid: string }) {
                             isIconOnly
                             size="md"
                             variant={submit ? 'primary' : 'secondary'}
-                            aria-label="Press Return after typing"
+                            aria-label={submit ? 'Return after send is on' : 'Return after send is off'}
                             onPress={() => setSubmit(!submit)}
+                            isDisabled={!ready}
                         >
                             <CornerDownLeft size={15} />
+                        </Button>
+                        <Button
+                            isIconOnly
+                            size="md"
+                            variant="primary"
+                            aria-label="Send text to phone"
+                            onPress={sendText}
+                            isDisabled={!ready || !text}
+                        >
+                            <Send size={15} />
                         </Button>
                     </div>
 
@@ -433,9 +511,14 @@ export function PhoneControl({ udid }: { udid: string }) {
                         <div className="col" style={{ gap: 16 }}>
                             <div className="row">
                                 <span className="grow">
-                                    Mirror to selected phones ({[...selected].filter((u) => u !== udid).length})
+                                    Mirror to other ready phones ({others().length})
                                 </span>
-                                <Toggle isSelected={mirror} onChange={setMirror} label="Mirror to selected phones" />
+                                <Toggle
+                                    isSelected={mirror}
+                                    onChange={setMirror}
+                                    label="Mirror to other ready phones"
+                                    isDisabled={!others().length}
+                                />
                             </div>
                             <div>
                                 <div className="section-title">Recent activity</div>

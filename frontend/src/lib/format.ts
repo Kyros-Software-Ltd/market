@@ -16,13 +16,13 @@ export function bytes(n: number) {
 }
 
 export const statusLabel: Record<Device['status'], string> = {
-    idle: 'waiting',
-    starting: 'setting up',
-    action: 'needs you',
-    ready: 'ready',
-    error: 'error',
-    offline: 'unplugged',
-    stopped: 'stopped',
+    idle: 'Waiting',
+    starting: 'Setting up',
+    action: 'Needs you',
+    ready: 'Ready',
+    error: 'Error',
+    offline: 'Away',
+    stopped: 'Stopped',
 };
 
 export const actorLabel: Record<Actor, string> = { you: 'You', claude: 'Claude', automation: 'Automation' };

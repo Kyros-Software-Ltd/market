@@ -15,10 +15,15 @@ class Controller {
         this.activity = []; // newest last
     }
 
-    readyWda(udid) {
+    readyClient(udid) {
         const device = this.devices.get(udid);
-        if (device.status !== 'ready' || !device.wda) throw new Error(`${device.name} is not connected`);
-        return device.wda;
+        if (device.status !== 'ready' || !device.client) throw new Error(`${device.name} is not connected`);
+        return device.client;
+    }
+
+    /** @deprecated use readyClient */
+    readyWda(udid) {
+        return this.readyClient(udid);
     }
 
     note(udid, actor, text) {
@@ -29,21 +34,25 @@ class Controller {
         if (device) device.lastActivity = entry;
     }
 
-    // WDA's main thread sometimes wedges (all actions hang while /status still answers).
-    // Only a restart recovers it, so do that automatically after repeated timeouts.
+    // Runner main thread sometimes wedges. Restarting kills the live stream for seconds, so
+    // only do it after many timeouts — and never for a single slow swipe on a busy app (X).
     noteTimeout(udid, device, q) {
         q.timeouts = (q.timeouts || 0) + 1;
-        if (q.timeouts < 2 || device.status !== 'ready') return;
+        if (q.timeouts < 5 || device.status !== 'ready') return;
         q.timeouts = 0;
-        device.log('Phone stopped responding to actions; restarting WebDriverAgent');
+        device.log(
+            device.engine === 'devicekit'
+                ? 'Phone stopped responding to actions; restarting DeviceKit'
+                : 'Phone stopped responding to actions; restarting legacy control app',
+        );
         this.devices.connect(udid).catch(() => {});
     }
 
-    enqueue(udid, label, fn, { drop = true } = {}) {
+    enqueue(udid, label, fn, { drop = true, maxQueued = MAX_QUEUED } = {}) {
         const q = this.queues.get(udid) || { tail: Promise.resolve(), pending: 0 };
         this.queues.set(udid, q);
         const device = this.devices.get(udid);
-        if (drop && q.pending >= MAX_QUEUED) {
+        if (drop && q.pending >= maxQueued) {
             device.log(`Skipped ${label}: phone is still busy with earlier actions`);
             return Promise.resolve();
         }
@@ -75,14 +84,16 @@ class Controller {
     async act(udid, action, args = {}, actor = 'you') {
         const fn = ACTIONS[action];
         if (!fn) throw new Error(`Unknown action "${action}"`);
+        // Manual clicks: keep at most one action queued. DeviceKit freezes MJPEG for the
+        // whole gesture — a pile of scroll/tap RPCs means seconds of black/0 fps.
         const result = await this.enqueue(
             udid,
             action,
             () => {
-                const w = this.readyWda(udid);
+                const w = this.readyClient(udid);
                 return fn(w, args, pointMapper(w, args));
             },
-            { drop: actor === 'you' },
+            { drop: actor === 'you', maxQueued: actor === 'you' ? 1 : MAX_QUEUED },
         );
         this.note(udid, actor, describe(action, args, result));
         return result;
@@ -97,7 +108,7 @@ class Controller {
     }
 
     async elements(udid) {
-        return this.enqueue(udid, 'read screen', () => this.readyWda(udid).elements(), { drop: false });
+        return this.enqueue(udid, 'read screen', () => this.readyClient(udid).elements(), { drop: false });
     }
 }
 
@@ -131,7 +142,19 @@ const ACTIONS = {
         await w.tap(el.x, el.y);
         return el;
     },
-    type: (w, b) => w.type(String(b.text || '') + (b.submit ? '\n' : '')),
+    type: async (w, b) => {
+        const text = String(b.text || '');
+        if (text) await w.type(text);
+        if (b.submit) {
+            if (typeof w.keys === 'function') await w.keys([{ key: 'return', modifiers: [] }]);
+            else await w.type('\n');
+        }
+    },
+    keys: (w, b) => {
+        if (typeof w.keys !== 'function') throw new Error('This phone cannot send key presses');
+        const keys = b.keys || (b.key ? [{ key: b.key, modifiers: b.modifiers || [] }] : []);
+        return w.keys(keys);
+    },
     home: (w) => w.home(),
     lock: (w) => w.lock(),
     unlock: (w) => w.unlock(),
@@ -158,7 +181,9 @@ function describe(action, b, result) {
         case 'tapText':
             return `tap "${result?.label || b.text}"`;
         case 'type':
-            return `type "${String(b.text || '').slice(0, 40)}"`;
+            return `type "${String(b.text || '').slice(0, 40)}${b.submit ? '⏎' : ''}"`;
+        case 'keys':
+            return `key ${(b.keys || [{ key: b.key }]).map((k) => k.key || k).join('+')}`;
         case 'launch':
             return `open ${b.bundleId}`;
         case 'openUrl':

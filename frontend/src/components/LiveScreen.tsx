@@ -1,39 +1,36 @@
 'use client';
-// A phone's live screen over USB. Reads the control app's MJPEG stream itself, decodes
-// frames off the main thread and paints only the newest one each display refresh, so it
-// never flashes half-drawn frames or falls behind like a plain <img> showing the stream.
-// Phones on Apple's own services (iOS 27) send video instead, handled by VideoScreen.
+// Live phone screen via DeviceKit / legacy WDA MJPEG.
+// Decoded off the main thread; only the newest frame is painted each refresh.
+// `profile` picks stream load: grid is light (many phones), focus is high fps (one phone).
 import { forwardRef, type HTMLAttributes, useEffect, useImperativeHandle, useRef } from 'react';
-import { VideoScreen } from './VideoScreen';
+
+export type StreamProfile = 'grid' | 'focus';
 
 export type ScreenProps = HTMLAttributes<HTMLCanvasElement> & {
     udid: string;
     /** Called once a second with the frames actually painted in that second. */
     onFps?: (fps: number) => void;
+    /** grid = many cards; focus = control panel. Defaults to focus. */
+    profile?: StreamProfile;
+};
+
+/** Hint only — backend hub uses the phone's configured stream. Kept light for heavy apps (X, TikTok). */
+const PROFILE_QS: Record<StreamProfile, string> = {
+    grid: 'fps=12&quality=24&scale=32',
+    focus: 'fps=24&quality=28&scale=36',
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
-    if (!a.length) return b;
-    const out = new Uint8Array(a.length + b.length);
-    out.set(a);
-    out.set(b, a.length);
-    return out;
-}
-
-const find = (b: Uint8Array, x: number, y: number, from: number) => {
-    for (let i = from; i < b.length - 1; i++) if (b[i] === x && b[i + 1] === y) return i;
+const find = (b: Uint8Array, len: number, x: number, y: number, from: number) => {
+    for (let i = from; i < len - 1; i++) if (b[i] === x && b[i + 1] === y) return i;
     return -1;
 };
 
-type Props = ScreenProps & { engine?: 'wda' | 'direct' | null };
-
-export const LiveScreen = forwardRef<HTMLCanvasElement, Props>(function LiveScreen({ engine, ...rest }, ref) {
-    return engine === 'direct' ? <VideoScreen ref={ref} {...rest} /> : <MjpegScreen ref={ref} {...rest} />;
-});
-
-const MjpegScreen = forwardRef<HTMLCanvasElement, ScreenProps>(function MjpegScreen({ udid, onFps, ...rest }, ref) {
+export const LiveScreen = forwardRef<HTMLCanvasElement, ScreenProps>(function LiveScreen(
+    { udid, onFps, profile = 'focus', ...rest },
+    ref,
+) {
     const canvas = useRef<HTMLCanvasElement>(null);
     useImperativeHandle(ref, () => canvas.current!, []);
     const fpsCb = useRef(onFps);
@@ -42,8 +39,8 @@ const MjpegScreen = forwardRef<HTMLCanvasElement, ScreenProps>(function MjpegScr
     useEffect(() => {
         const ctx = canvas.current!.getContext('2d', { alpha: false })!;
         let stopped = false;
-        let pending: ImageBitmap | null = null; // newest decoded frame, not yet painted
-        let latest: Blob | null = null; // newest received frame, waiting to decode
+        let pending: ImageBitmap | null = null;
+        let latest: Blob | null = null;
         let decoding = false;
         let raf = 0;
         let abort: AbortController | null = null;
@@ -70,8 +67,6 @@ const MjpegScreen = forwardRef<HTMLCanvasElement, ScreenProps>(function MjpegScr
             f.close();
         };
 
-        // Decode one frame at a time; frames that arrive meanwhile replace each other, so a
-        // slow moment skips ahead instead of building up lag.
         const decode = async () => {
             if (decoding) return;
             decoding = true;
@@ -88,49 +83,80 @@ const MjpegScreen = forwardRef<HTMLCanvasElement, ScreenProps>(function MjpegScr
                     pending = bmp;
                     if (!raf) raf = requestAnimationFrame(paint);
                 } catch {
-                    /* corrupt frame: skip */
+                    /* corrupt frame */
                 }
             }
             decoding = false;
         };
 
         async function run() {
-            let retry = 500;
+            let retry = 200;
+            const qs = PROFILE_QS[profile] || PROFILE_QS.focus;
             while (!stopped) {
                 abort = new AbortController();
                 try {
-                    const res = await fetch(`/api/devices/${udid}/stream`, { signal: abort.signal, cache: 'no-store' });
+                    const res = await fetch(`/api/devices/${udid}/stream?${qs}`, {
+                        signal: abort.signal,
+                        cache: 'no-store',
+                    });
+                    // Only nudge a reconnect when the phone is not streaming yet — a 502 is often
+                    // a brief hub blip; forcing /connect tears DeviceKit down and freezes at 0 fps.
+                    if (res.status === 409) {
+                        try {
+                            await fetch(`/api/devices/${udid}/connect`, { method: 'POST', cache: 'no-store' });
+                        } catch {
+                            /* already connecting */
+                        }
+                    }
                     if (!res.ok || !res.body) throw new Error(String(res.status));
                     const reader = res.body.getReader();
-                    let buf: Uint8Array = new Uint8Array(0);
-                    retry = 500;
+                    // Growable buffer — avoid allocating a new Uint8Array on every TCP chunk.
+                    let buf = new Uint8Array(256 * 1024);
+                    let len = 0;
+                    const maxBuf = 2 * 1024 * 1024;
+                    retry = 200;
                     while (!stopped) {
                         const { value, done } = await reader.read();
                         if (done) break;
-                        buf = concat(buf, value);
-                        // Pull out every complete JPEG (FFD8 … FFD9) in the buffer.
-                        for (;;) {
-                            const start = find(buf, 0xff, 0xd8, 0);
-                            if (start < 0) {
-                                buf = buf.slice(Math.max(0, buf.length - 1));
-                                break;
-                            }
-                            const end = find(buf, 0xff, 0xd9, start + 2);
-                            if (end < 0) {
-                                buf = buf.slice(start);
-                                break;
-                            }
-                            latest = new Blob([buf.slice(start, end + 2)], { type: 'image/jpeg' });
-                            buf = buf.slice(end + 2);
+                        if (len + value.length > buf.length) {
+                            const next = new Uint8Array(Math.min(maxBuf, Math.max(buf.length * 2, len + value.length)));
+                            next.set(buf.subarray(0, len));
+                            buf = next;
                         }
-                        decode();
+                        // Heavy apps (X) can stall mid-JPEG; drop a runaway buffer so we resync.
+                        if (len + value.length > maxBuf) {
+                            len = 0;
+                        }
+                        buf.set(value.subarray(0, Math.min(value.length, buf.length - len)), len);
+                        len += Math.min(value.length, buf.length - len);
+                        for (;;) {
+                            const start = find(buf, len, 0xff, 0xd8, 0);
+                            if (start < 0) {
+                                // Keep the last byte in case a marker is split across chunks.
+                                if (len > 1) {
+                                    buf[0] = buf[len - 1];
+                                    len = 1;
+                                }
+                                break;
+                            }
+                            if (start > 0) {
+                                buf.copyWithin(0, start, len);
+                                len -= start;
+                            }
+                            const end = find(buf, len, 0xff, 0xd9, 2);
+                            if (end < 0) break;
+                            latest = new Blob([buf.slice(0, end + 2)], { type: 'image/jpeg' });
+                            buf.copyWithin(0, end + 2, len);
+                            len -= end + 2;
+                            decode();
+                        }
                     }
                 } catch {
-                    /* stream dropped or phone restarting */
+                    /* stream dropped */
                 }
                 if (stopped) break;
                 await sleep(retry);
-                retry = Math.min(retry * 2, 4000);
+                retry = Math.min(retry * 1.5, 1500);
             }
         }
         run();
@@ -142,7 +168,7 @@ const MjpegScreen = forwardRef<HTMLCanvasElement, ScreenProps>(function MjpegScr
             if (raf) cancelAnimationFrame(raf);
             pending?.close();
         };
-    }, [udid]);
+    }, [udid, profile]);
 
     return <canvas ref={canvas} width={1} height={1} {...rest} />;
 });

@@ -55,10 +55,8 @@ function Frame({ children }: { children: ReactNode }) {
     return (
         <div className="app">
             <aside className="sidebar dark" data-theme="dark">
-                {/* Wordmark in the full sidebar; the square icon when the sidebar is narrow. */}
                 <div className="brand">
-                    <img className="brand-full" src="/white-webview.svg" alt="Market" />
-                    <img className="brand-thin" src="/icon.png" alt="" />
+                    <img className="brand-mark" src="/icon.png" alt="Market" />
                 </div>
                 <nav className="nav">
                     {NAV.map((n) => (
@@ -82,7 +80,7 @@ function Frame({ children }: { children: ReactNode }) {
                             )}
                         </Button>
                     ))}
-                    <div className="nav-label">System</div>
+                    <div className="nav-sep" />
                     <Button
                         variant="ghost"
                         fullWidth
@@ -90,14 +88,14 @@ function Frame({ children }: { children: ReactNode }) {
                         onPress={() => go('setup')}
                     >
                         <SetupIcon />
-                        <span>Setup</span>
+                        <span>Get started</span>
                         {needsSetup && <span className="nav-alert" />}
                     </Button>
                 </nav>
                 <div className="sidebar-foot">
                     <span className="row small dim">
                         <span className={`dot ${connected ? 'ready' : 'error'}`} />
-                        {connected ? 'Engine running' : 'Engine offline'}
+                        {connected ? 'Connected' : 'Offline'}
                     </span>
                     <VersionTag />
                     <a
@@ -116,16 +114,16 @@ function Frame({ children }: { children: ReactNode }) {
             <main>
                 <div className="page">
                     <div className="page-scroll">
-                        <div className="page-inner" key={page}>
+                        <div className={`page-inner${page === 'phones' ? ' full' : ''}`} key={page}>
                             <UpdateNotice />
                             {status.usbError && (
                                 <div className="notice">
                                     <CircleX />
                                     <span className="grow">
-                                        Windows can't talk to iPhones yet: the Apple USB driver is missing.
+                                        Windows needs Apple’s USB driver before it can see iPhones.
                                     </span>
                                     <Button size="sm" variant="secondary" onPress={() => go('setup')}>
-                                        Open setup
+                                        Get started
                                     </Button>
                                 </div>
                             )}

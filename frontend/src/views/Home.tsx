@@ -1,25 +1,21 @@
 'use client';
 import { Button, Card, Table } from '@heroui/react';
-import { Activity as ActivityIcon, Cable, ChevronRight, Play, Plug, Upload, Wifi } from 'lucide-react';
+import { Cable, ChevronRight, Play, Plug, Upload, Wifi } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { ActivityTable, EmptyCard, StatusBadge, TableSection } from '@/components/common';
-import { get, type MediaItem, post, type Schedule, type SetupInfo } from '@/lib/api';
-import { ago, bytes, modelName, renewText } from '@/lib/format';
-import { CalendarIcon, ClaudeCodeIcon, FlowIcon, FolderOpenIcon, PhoneIcon } from '@/lib/icons';
+import { EmptyCard, StatusBadge, TableSection } from '@/components/common';
+import { get, post, type Schedule } from '@/lib/api';
+import { ago, modelName, renewText } from '@/lib/format';
+import { CalendarIcon, ClaudeCodeIcon, FlowIcon, PhoneIcon } from '@/lib/icons';
 import { useAction, useStore } from '@/lib/store';
 
-export function HomePage({ setup }: { setup: SetupInfo | null }) {
-    const { status, go, setFocus, sideload } = useStore();
+export function HomePage() {
+    const { status, go, setFocus } = useStore();
     const act = useAction();
     const [schedules, setSchedules] = useState<Schedule[]>([]);
-    const [media, setMedia] = useState<MediaItem[]>([]);
 
     useEffect(() => {
         get<{ schedules: Schedule[] }>('/schedules')
             .then((r) => setSchedules(r.schedules))
-            .catch(() => {});
-        get<MediaItem[]>('/media')
-            .then(setMedia)
             .catch(() => {});
     }, []);
 
@@ -30,16 +26,6 @@ export function HomePage({ setup }: { setup: SetupInfo | null }) {
     const today = new Date().setHours(0, 0, 0, 0);
     const claudeToday = status.activity.filter((a) => a.actor === 'claude' && a.at >= today).length;
     const next = schedules.filter((s) => s.next).sort((a, b) => a.next! - b.next!)[0];
-
-    const systemRows = [
-        { part: 'USB driver', value: setup ? (setup.usbOk ? 'OK' : 'Missing') : '…', bad: !!setup && !setup.usbOk },
-        {
-            part: 'Apple ID',
-            value: sideload ? sideload.appleId || 'Not signed in' : '…',
-            bad: !!sideload && !sideload.appleId,
-        },
-        { part: 'iOS helper', value: setup?.helper || '…', bad: false },
-    ];
 
     const stats = [
         {
@@ -191,13 +177,6 @@ export function HomePage({ setup }: { setup: SetupInfo | null }) {
                             </EmptyCard>
                         )}
                     </TableSection>
-
-                    <TableSection title="Activity" icon={<ActivityIcon size={14} />}>
-                        <ActivityTable
-                            items={status.activity.slice(-12).reverse()}
-                            empty="Taps, swipes and automation steps show up here."
-                        />
-                    </TableSection>
                 </div>
 
                 <div className="stack">
@@ -247,92 +226,6 @@ export function HomePage({ setup }: { setup: SetupInfo | null }) {
                                 Start an automation or ask Claude.
                             </EmptyCard>
                         )}
-                    </TableSection>
-
-                    <TableSection
-                        title="Media library"
-                        icon={<FolderOpenIcon width={14} height={14} />}
-                        actions={
-                            <>
-                                <span className="mono muted small">
-                                    {media.length} files · {media.filter((m) => m.type === 'video').length} videos
-                                </span>
-                                <Button size="sm" variant="ghost" onPress={() => go('media')}>
-                                    Open
-                                    <ChevronRight size={14} />
-                                </Button>
-                            </>
-                        }
-                    >
-                        {media.length ? (
-                            <Table>
-                                <Table.ScrollContainer>
-                                    <Table.Content aria-label="Latest media" onRowAction={() => go('media')}>
-                                        <Table.Header>
-                                            <Table.Column isRowHeader>Latest files</Table.Column>
-                                            <Table.Column>Type</Table.Column>
-                                            <Table.Column>Size</Table.Column>
-                                        </Table.Header>
-                                        <Table.Body>
-                                            {media.slice(0, 5).map((m) => (
-                                                <Table.Row key={m.name} id={m.name} className="clickable">
-                                                    <Table.Cell>
-                                                        <span
-                                                            className="ellipsis"
-                                                            style={{ display: 'block', maxWidth: 220, fontWeight: 500 }}
-                                                        >
-                                                            {m.name}
-                                                        </span>
-                                                    </Table.Cell>
-                                                    <Table.Cell>
-                                                        <span className="muted">
-                                                            {m.type === 'video' ? 'Video' : 'Image'}
-                                                        </span>
-                                                    </Table.Cell>
-                                                    <Table.Cell>
-                                                        <span className="mono muted">{bytes(m.size)}</span>
-                                                    </Table.Cell>
-                                                </Table.Row>
-                                            ))}
-                                        </Table.Body>
-                                    </Table.Content>
-                                </Table.ScrollContainer>
-                            </Table>
-                        ) : (
-                            <EmptyCard icon={<FolderOpenIcon />} title="No media yet">
-                                Add photos and videos on the Media page.
-                            </EmptyCard>
-                        )}
-                    </TableSection>
-
-                    <TableSection title="System">
-                        <Table>
-                            <Table.ScrollContainer>
-                                <Table.Content aria-label="System">
-                                    <Table.Header>
-                                        <Table.Column isRowHeader>Part</Table.Column>
-                                        <Table.Column>Status</Table.Column>
-                                    </Table.Header>
-                                    <Table.Body>
-                                        {systemRows.map((r) => (
-                                            <Table.Row key={r.part} id={r.part}>
-                                                <Table.Cell>
-                                                    <span style={{ fontWeight: 500 }}>{r.part}</span>
-                                                </Table.Cell>
-                                                <Table.Cell>
-                                                    <span
-                                                        className="mono"
-                                                        style={{ color: r.bad ? 'var(--amber)' : 'var(--faint)' }}
-                                                    >
-                                                        {r.value}
-                                                    </span>
-                                                </Table.Cell>
-                                            </Table.Row>
-                                        ))}
-                                    </Table.Body>
-                                </Table.Content>
-                            </Table.ScrollContainer>
-                        </Table>
                     </TableSection>
                 </div>
             </div>

@@ -55,6 +55,7 @@ function loadConfig() {
         ...base,
         ...user,
         wda: { ...base.wda, ...user.wda },
+        devicekit: { ...base.devicekit, ...user.devicekit },
         localPorts: { ...base.localPorts, ...user.localPorts },
     };
 }

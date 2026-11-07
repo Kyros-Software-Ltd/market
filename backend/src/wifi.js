@@ -16,6 +16,8 @@ class Wifi {
         this.apple = `127.0.0.1:${applePort}`;
         this.data = readJson(FILE, {}); // udid -> { mode, wifiMac }
         this.names = new Map(); // udid -> { name, model, iosVersion } for phones found on Wi-Fi
+        // Keep connections.json in sync when Apple reports a NetworkAddress (DHCP can change).
+        this.proxy.onWifiIp = (udid, ip) => this.learnIp(udid, ip);
         this.syncProxy();
     }
 
@@ -32,10 +34,13 @@ class Wifi {
         );
     }
 
-    /** Remembers a phone's Wi-Fi address (read from its control app) so it can be reached without Apple's discovery. */
+    /** Remembers a phone's Wi-Fi address so it can be reached without Apple's discovery. */
     learnIp(udid, ip) {
-        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip || '') || !this.data[udid] || this.data[udid].ip === ip) return;
-        this.data[udid] = { ...this.data[udid], ip };
+        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip || '')) return;
+        // Allow learning even before mode is set — USB sessions often see the Network address first.
+        const prev = this.data[udid] || { mode: 'usb' };
+        if (prev.ip === ip) return;
+        this.data[udid] = { ...prev, ip };
         this.save();
     }
 

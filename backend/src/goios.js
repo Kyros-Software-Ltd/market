@@ -1,6 +1,7 @@
 // Thin wrapper around the go-ios CLI (https://github.com/danielpaulus/go-ios), which talks
 // to iPhones through usbmux: Market's proxy (usbmux-proxy.js) in front of Apple's service,
 // set via USBMUXD_SOCKET_ADDRESS when the server starts.
+// Each phone can use its own tunnel-info-port so one tunnel dying does not take the others.
 const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -55,10 +56,17 @@ function lastErrorMessage(stderr) {
     return lines[0] || 'unknown go-ios error';
 }
 
+function withGlobals(args, { udid, tunnelInfoPort } = {}) {
+    const full = [...args];
+    if (udid) full.push(`--udid=${udid}`);
+    if (tunnelInfoPort) full.push(`--tunnel-info-port=${tunnelInfoPort}`);
+    return full;
+}
+
 /** Run a short go-ios command and resolve with its parsed JSON output. */
 // usbmux: set to talk to a specific usbmux service (e.g. Apple's own, bypassing Market's proxy).
-function run(args, { udid, timeout = 30000, usbmux } = {}) {
-    const fullArgs = udid ? [...args, `--udid=${udid}`] : args;
+function run(args, { udid, timeout = 30000, usbmux, tunnelInfoPort } = {}) {
+    const fullArgs = withGlobals(args, { udid, tunnelInfoPort });
     const env = usbmux ? { ...process.env, USBMUXD_SOCKET_ADDRESS: usbmux } : process.env;
     return new Promise((resolve, reject) => {
         execFile(BIN, fullArgs, { ...OPTS, env, timeout, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
@@ -70,8 +78,8 @@ function run(args, { udid, timeout = 30000, usbmux } = {}) {
 }
 
 /** Start a long-running go-ios process (forward, runwda, tunnel). */
-function spawnLong(args, { udid, onLog } = {}) {
-    const fullArgs = udid ? [...args, `--udid=${udid}`] : args;
+function spawnLong(args, { udid, tunnelInfoPort, onLog } = {}) {
+    const fullArgs = withGlobals(args, { udid, tunnelInfoPort });
     const child = spawn(BIN, fullArgs, OPTS);
     const forward = (buf) => {
         if (!onLog) return;

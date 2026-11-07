@@ -177,60 +177,165 @@ function createApp() {
 
     app.get('/api/devices/:udid/screenshot', async (req, res) => {
         try {
-            const png = await control.readyWda(req.params.udid).screenshot();
+            const png = await control.readyClient(req.params.udid).screenshot();
             res.type('png').send(Buffer.from(png, 'base64'));
         } catch (e) {
             res.status(400).json({ error: e.message });
         }
     });
 
-    // The phone's MJPEG screen stream, passed through so the UI can read it same-origin
-    // (WDA sends no CORS headers) and paint frames itself instead of via <img>.
+    // One upstream MJPEG per phone, fanned out to every browser viewer. Two LiveScreens
+    // (grid + control dock) used to open two DeviceKit /mjpeg sessions and starve each other.
+    // Heavy apps (X, TikTok) make DeviceKit's screenshot stream pause — reconnect the upstream
+    // quietly instead of ending every viewer (that showed as fps → 0 for seconds).
+    const mjpegHubs = new Map(); // udid -> hub
+
+    const closeMjpegHub = (hub, { endClients = true } = {}) => {
+        if (!hub || hub.closed) return;
+        hub.closed = true;
+        clearTimeout(hub.idleTimer);
+        clearTimeout(hub.restartTimer);
+        try {
+            hub.upstream?.destroy();
+        } catch {}
+        hub.upstream = null;
+        if (endClients) {
+            for (const client of hub.clients) {
+                try {
+                    if (!client.headersSent) client.status(502).end();
+                    else client.end();
+                } catch {}
+            }
+            hub.clients.clear();
+        }
+        if (mjpegHubs.get(hub.udid) === hub) mjpegHubs.delete(hub.udid);
+    };
+
+    const scheduleMjpegRestart = (hub) => {
+        if (hub.closed || hub.clients.size === 0) {
+            closeMjpegHub(hub);
+            return;
+        }
+        clearTimeout(hub.restartTimer);
+        hub.restartTimer = setTimeout(() => {
+            if (hub.closed || hub.clients.size === 0 || hub.upstream) return;
+            startMjpegUpstream(hub);
+        }, 250);
+    };
+
+    const startMjpegUpstream = (hub) => {
+        if (hub.upstream || hub.closed) return;
+        const upstream = http.get({ host: hub.host, port: hub.port, path: hub.path }, (up) => {
+            if (hub.closed) {
+                up.destroy();
+                return;
+            }
+            if ((up.statusCode || 200) >= 400) {
+                try {
+                    up.destroy();
+                } catch {}
+                hub.upstream = null;
+                scheduleMjpegRestart(hub);
+                return;
+            }
+            hub.headers = {
+                'Content-Type': up.headers['content-type'] || 'multipart/x-mixed-replace',
+                'Cache-Control': 'no-store',
+            };
+            for (const client of hub.clients) {
+                if (!client.headersSent) {
+                    try {
+                        client.writeHead(200, hub.headers);
+                    } catch {}
+                }
+            }
+            up.on('data', (chunk) => {
+                for (const client of hub.clients) {
+                    if (!client.writableEnded) {
+                        try {
+                            client.write(chunk);
+                        } catch {}
+                    }
+                }
+            });
+            up.on('end', () => {
+                if (hub.upstream === upstream) hub.upstream = null;
+                scheduleMjpegRestart(hub);
+            });
+            up.on('error', () => {
+                if (hub.upstream === upstream) hub.upstream = null;
+                scheduleMjpegRestart(hub);
+            });
+        });
+        upstream.on('error', () => {
+            if (hub.upstream === upstream) hub.upstream = null;
+            scheduleMjpegRestart(hub);
+        });
+        hub.upstream = upstream;
+    };
+
     app.get('/api/devices/:udid/stream', (req, res) => {
+        const udid = req.params.udid;
         let port;
         let host;
+        let streamPath;
         try {
-            ({ mjpegPort: port, mjpegHost: host } = devices.get(req.params.udid));
+            const d = devices.get(udid);
+            port = d.mjpegPort;
+            host = d.mjpegHost || '127.0.0.1';
+            streamPath = d.mjpegPath || '/';
         } catch (e) {
             return res.status(404).json({ error: e.message });
         }
         if (!port) return res.status(409).json({ error: 'Phone is not streaming' });
-        const upstream = http.get({ host: host || '127.0.0.1', port, path: '/' }, (up) => {
-            res.writeHead(up.statusCode || 200, {
-                'Content-Type': up.headers['content-type'] || 'multipart/x-mixed-replace',
-                'Cache-Control': 'no-store',
-            });
-            up.pipe(res);
-        });
-        upstream.on('error', (e) => {
-            if (!res.headersSent) res.status(502).json({ error: e.message });
-            else res.end();
-        });
-        req.on('close', () => upstream.destroy());
-    });
 
-    // iOS 27 phones: the screen as HEVC video and the settings to decode it (see direct.js).
-    for (const [route, upstreamPath] of [
-        ['codec', '/codec'],
-        ['video', '/stream.bin'],
-    ]) {
-        app.get(`/api/devices/:udid/${route}`, (req, res) => {
-            const port = devices.devices.get(req.params.udid)?.wda?.streamPort;
-            if (!port) return res.status(409).json({ error: 'Phone is not streaming' });
-            const upstream = http.get({ host: '127.0.0.1', port, path: upstreamPath }, (up) => {
-                res.writeHead(up.statusCode || 200, {
-                    'Content-Type': up.headers['content-type'] || 'application/octet-stream',
-                    'Cache-Control': 'no-store',
-                });
-                up.pipe(res);
-            });
-            upstream.on('error', (e) => {
-                if (!res.headersSent) res.status(502).json({ error: e.message });
-                else res.end();
-            });
-            req.on('close', () => upstream.destroy());
+        let hub = mjpegHubs.get(udid);
+        if (hub && (hub.port !== port || hub.host !== host || hub.closed)) {
+            closeMjpegHub(hub);
+            hub = null;
+        }
+        if (!hub) {
+            hub = {
+                udid,
+                host,
+                port,
+                path: streamPath,
+                clients: new Set(),
+                upstream: null,
+                headers: null,
+                closed: false,
+                idleTimer: null,
+                restartTimer: null,
+            };
+            mjpegHubs.set(udid, hub);
+            startMjpegUpstream(hub);
+        } else if (hub.path !== streamPath) {
+            // Phone reconnected with new stream settings — swap upstream, keep viewers.
+            hub.path = streamPath;
+            try {
+                hub.upstream?.destroy();
+            } catch {}
+            hub.upstream = null;
+            hub.headers = null;
+            startMjpegUpstream(hub);
+        }
+
+        clearTimeout(hub.idleTimer);
+        hub.clients.add(res);
+        res.on('close', () => {
+            hub.clients.delete(res);
+            if (hub.clients.size === 0) {
+                hub.idleTimer = setTimeout(() => {
+                    if (hub.clients.size === 0) closeMjpegHub(hub);
+                }, 750);
+            }
         });
-    }
+        if (hub.headers && !res.headersSent) {
+            try {
+                res.writeHead(200, hub.headers);
+            } catch {}
+        }
+    });
 
     // What Claude "sees": the screen scaled to the phone's size in points (so a pixel
     // in the image is exactly a tap coordinate), plus the labelled elements on screen.
@@ -238,10 +343,10 @@ function createApp() {
         '/api/devices/:udid/look',
         api(async (req) => {
             const udid = req.params.udid;
-            const wda = control.readyWda(udid);
-            const { width, height } = wda.size;
+            const client = control.readyClient(udid);
+            const { width, height } = client.size;
             const [png, elements] = await Promise.all([
-                wda.screenshot(),
+                client.screenshot(),
                 req.query.elements === '0' ? null : control.elements(udid).catch((e) => ({ error: e.message })),
             ]);
             let image = png;

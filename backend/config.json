@@ -2,6 +2,17 @@
     "port": 4000,
     "affrevUrl": "https://affrev.com",
 
+    "controlEngine": "wda",
+
+    "devicekit": {
+        "bundleId": "com.mobilenext.devicekit-iosUITests.xctrunner",
+        "xctestConfig": "devicekit-iosUITests.xctest",
+        "devicePort": 12004,
+        "mjpegFramerate": 24,
+        "mjpegQuality": 28,
+        "mjpegScale": 36
+    },
+
     "wda": {
         "bundleId": "com.facebook.WebDriverAgentRunner.xctrunner",
         "testRunnerBundleId": "com.facebook.WebDriverAgentRunner.xctrunner",
@@ -16,15 +27,17 @@
     "localPorts": {
         "wdaBase": 8100,
         "mjpegBase": 9100,
-        "directBase": 9300
+        "directBase": 9300,
+        "devicekitBase": 12004,
+        "screenshotBase": 13333,
+        "tunnelInfoBase": 28200,
+        "tunnelUserspaceBase": 60305
     },
 
     "usbmuxProxyPort": 27115,
     "appleUsbmuxPort": 27015,
 
-    "startTunnel": true,
     "autoConnect": true,
-    "directControlMinIos": 27,
 
     "sideloadAnisetteUrl": "https://new.ani.sidestore.io"
 }

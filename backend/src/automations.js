@@ -19,8 +19,8 @@ const randInt = (min, max) => Math.floor(rand(min, max + 1));
 // Every action goes through the shared Controller, so it shows in the activity feed.
 function createContext(device, job, control) {
     const wda = () => {
-        if (!device.wda) throw new Error('Device is not connected');
-        return device.wda;
+        if (!device.client) throw new Error('Device is not connected');
+        return device.client;
     };
     const check = () => {
         if (job.stopRequested) throw new StoppedError('Stopped');
@@ -34,6 +34,9 @@ function createContext(device, job, control) {
         device: {
             udid: device.udid,
             name: device.name,
+            get engine() {
+                return device.engine;
+            },
             get wdaBundleId() {
                 return device.wdaBundleId;
             },
@@ -119,7 +122,7 @@ function createContext(device, job, control) {
             try {
                 return await fn();
             } finally {
-                await device.wda?.applySettings().catch(() => {});
+                await device.client?.applySettings().catch(() => {});
             }
         },
         async tapTextIfPresent(text) {

@@ -1,33 +1,32 @@
 'use client';
-import { Button, Card } from '@heroui/react';
+import { Button, Card, Table } from '@heroui/react';
 import { Cable, Check as CheckIcon, ChevronDown, Download, FolderOpen, Smartphone, Wifi } from 'lucide-react';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { AccountRow } from '@/components/Account';
-import { StatusBadge } from '@/components/common';
 import { PhoneState } from '@/components/PhoneState';
 import { AppleIdPanel } from '@/components/Sideload';
 import { VersionRow } from '@/components/Update';
 import { Panel, SelectField, Toggle } from '@/components/ui';
 import { type Device, del, get, post, type SetupInfo } from '@/lib/api';
 import { modelName } from '@/lib/format';
+import { phoneCopy } from '@/lib/phoneCopy';
 import { useAction, useStore } from '@/lib/store';
 
 const CONNECTION_OPTIONS = [
-    { key: 'usb', label: 'USB only' },
-    { key: 'wifi', label: 'USB + Wi-Fi' },
+    { key: 'usb', label: 'Cable only' },
+    { key: 'wifi', label: 'Cable + Wi‑Fi' },
 ];
 
 function connectionText(d: Device) {
-    if (d.wifiMissing) return "Wi-Fi is on, but this PC can't see the phone on the network yet. Keep it unlocked and on the same Wi-Fi as this PC. Don't unplug it yet.";
-    if (d.canUnplug) return 'On Wi-Fi too. You can unplug it now.';
-    if (d.mode !== 'wifi') return d.online ? 'Connected by USB' : 'Not connected';
-    if (d.connection === 'wifi') return 'Connected over Wi-Fi';
-    if (d.connection === 'usb') return 'Connected by USB · uses Wi-Fi when unplugged';
-    return 'Waiting for it on Wi-Fi (same network as this PC, unlocked)';
+    if (d.wifiMissing) return 'Waiting on Wi‑Fi — keep it unlocked on this network.';
+    if (d.canUnplug) return 'Ready for Wi‑Fi. You can unplug now.';
+    if (d.mode !== 'wifi') return d.online ? 'On cable' : 'Not connected';
+    if (d.connection === 'wifi') return 'On Wi‑Fi';
+    if (d.connection === 'usb') return 'On cable · will use Wi‑Fi when unplugged';
+    return 'Looking for this phone on Wi‑Fi…';
 }
 
-// USB only, or USB + Wi-Fi. Turning Wi-Fi on happens on the phone itself, over the cable.
-function ConnectionPicker({ device }: { device: Device }) {
+function ConnectionPicker({ device, compact }: { device: Device; compact?: boolean }) {
     const act = useAction();
     const [busy, setBusy] = useState(false);
     async function change(mode: string) {
@@ -35,14 +34,14 @@ function ConnectionPicker({ device }: { device: Device }) {
         setBusy(true);
         await act(
             () => post(`/devices/${device.udid}/connection`, { mode }),
-            mode === 'wifi' ? `${device.name} can now connect over Wi-Fi` : `${device.name} is USB only`,
+            mode === 'wifi' ? `${device.name} can use Wi‑Fi` : `${device.name} is cable only`,
         );
         setBusy(false);
     }
     return (
-        <div style={{ width: 150 }}>
+        <div style={{ width: compact ? 148 : 168 }} onClick={(e) => e.stopPropagation()}>
             <SelectField
-                label="Connection"
+                label={compact ? undefined : 'Connection'}
                 value={device.mode}
                 onChange={change}
                 options={CONNECTION_OPTIONS}
@@ -52,7 +51,6 @@ function ConnectionPicker({ device }: { device: Device }) {
     );
 }
 
-// Phones this PC already trusts that are on the Wi-Fi but not set up for it here.
 function FoundOnWifi() {
     const act = useAction();
     const [found, setFound] = useState<{ udid: string; name?: string; model?: string; iosVersion?: string }[]>([]);
@@ -68,15 +66,16 @@ function FoundOnWifi() {
     if (!found.length) return null;
     return (
         <div className="col" style={{ gap: 8, marginTop: 6 }}>
-            <span className="field-label">Found on Wi-Fi</span>
+            <span className="field-label">Also on this Wi‑Fi</span>
             {found.map((p) => (
                 <Card key={p.udid} variant="secondary" className="panel">
-                    <div className="row" style={{ padding: '9px 12px' }}>
+                    <div className="row" style={{ padding: '12px 14px' }}>
                         <span className="grow" style={{ fontWeight: 500 }}>
-                            {p.name || p.udid.slice(0, 8)}{' '}
+                            {p.name || 'iPhone'}
                             {p.model && (
-                                <span className="mono muted">
-                                    {modelName(p.model)} · iOS {p.iosVersion}
+                                <span className="muted" style={{ fontWeight: 400 }}>
+                                    {' '}
+                                    · {modelName(p.model)}
                                 </span>
                             )}
                         </span>
@@ -87,13 +86,13 @@ function FoundOnWifi() {
                                 if (
                                     await act(
                                         () => post(`/devices/${p.udid}/connection`, { mode: 'wifi' }),
-                                        `${p.name || 'Phone'} will connect over Wi-Fi`,
+                                        `${p.name || 'Phone'} will connect over Wi‑Fi`,
                                     )
                                 )
                                     setFound((f) => f.filter((x) => x.udid !== p.udid));
                             }}
                         >
-                            Connect over Wi-Fi
+                            Add over Wi‑Fi
                         </Button>
                     </div>
                 </Card>
@@ -102,8 +101,6 @@ function FoundOnWifi() {
     );
 }
 
-// While a phone is plugged in, Windows' "Apple Mobile Device Ethernet" adapter makes Apple's service
-// lose phones on Wi-Fi. Market doesn't use it, so one click (and a Windows admin prompt) switches it off.
 export function WifiAdapterFix() {
     const act = useAction();
     const [needed, setNeeded] = useState(false);
@@ -118,18 +115,17 @@ export function WifiAdapterFix() {
     }, []);
     if (!needed) return null;
     return (
-        <Card variant="secondary" className="panel">
-            <div className="row" style={{ padding: '9px 12px', gap: 12 }}>
+        <Card variant="secondary" className="panel notice-card">
+            <div className="row" style={{ padding: '12px 14px', gap: 12 }}>
                 <span className="grow small dim">
-                    Wi-Fi phones can drop when another phone is plugged in by USB. Switching off Windows' "Apple Mobile
-                    Device Ethernet" adapter fixes it (it only shares the phone's internet with this PC).
+                    A Windows Apple USB adapter can drop Wi‑Fi phones when another phone is plugged in. Market can switch
+                    it off.
                 </span>
                 <Button
                     size="sm"
                     variant="secondary"
                     onPress={async () => {
-                        if (await act(() => post('/netfix', {}), 'Apple USB network adapter switched off'))
-                            setNeeded(false);
+                        if (await act(() => post('/netfix', {}), 'Network adapter fixed')) setNeeded(false);
                     }}
                 >
                     Fix
@@ -141,7 +137,6 @@ export function WifiAdapterFix() {
 
 type StepState = 'done' | 'current' | 'todo';
 
-// A finished step folds down to one line; the step you are on is open and marked.
 function Step({
     n,
     state,
@@ -167,7 +162,7 @@ function Step({
         <Card className={`panel step ${state}`}>
             <div className="step-num">{state === 'done' ? <CheckIcon strokeWidth={3} /> : n}</div>
             <div className="grow">
-                <div className="row" style={{ minHeight: 26 }}>
+                <div className="row" style={{ minHeight: 28 }}>
                     <h3 className="grow" style={{ margin: 0 }}>
                         {title}
                     </h3>
@@ -185,7 +180,6 @@ function Step({
     );
 }
 
-// Where you are and what to do next, above the steps.
 function Progress({ done, next, onFinish }: { done: boolean[]; next: string; onFinish: () => void }) {
     const count = done.filter(Boolean).length;
     const finished = count === done.length;
@@ -204,12 +198,12 @@ function Progress({ done, next, onFinish }: { done: boolean[]; next: string; onF
             </div>
             <div className="row">
                 <div className="grow">
-                    <div style={{ fontWeight: 600 }}>{finished ? 'All set' : `${count} of ${done.length} done`}</div>
-                    <div className="small dim">{finished ? 'Your phones are ready to use.' : `Next: ${next}`}</div>
+                    <div style={{ fontWeight: 600 }}>{finished ? 'You’re ready' : `${count} of ${done.length} complete`}</div>
+                    <div className="small dim">{finished ? 'Open Phones to start controlling.' : next}</div>
                 </div>
                 {finished && (
                     <Button size="sm" variant="primary" onPress={onFinish}>
-                        View phones
+                        Go to Phones
                     </Button>
                 )}
             </div>
@@ -217,7 +211,190 @@ function Progress({ done, next, onFinish }: { done: boolean[]; next: string; onF
     );
 }
 
-// Opens a web page in the normal browser (the app hands window.open off to it).
+type PhoneFilter = 'attention' | 'ready' | 'all';
+
+function needsAttention(d: Device) {
+    return d.status !== 'ready';
+}
+
+function PhoneOnboardList({ devices }: { devices: Device[] }) {
+    const act = useAction();
+    const attention = useMemo(() => devices.filter(needsAttention), [devices]);
+    const ready = useMemo(() => devices.filter((d) => d.status === 'ready'), [devices]);
+    const usbOnly = useMemo(() => devices.filter((d) => d.mode !== 'wifi'), [devices]);
+    const [filter, setFilter] = useState<PhoneFilter>(attention.length ? 'attention' : 'all');
+    const [openId, setOpenId] = useState<string | null>(null);
+    const [bulkBusy, setBulkBusy] = useState(false);
+
+    useEffect(() => {
+        if (filter === 'attention' && !attention.length) setFilter(ready.length ? 'ready' : 'all');
+    }, [attention.length, ready.length, filter]);
+
+    const shown =
+        filter === 'attention' ? attention : filter === 'ready' ? ready : devices;
+    const open = shown.find((d) => d.udid === openId) ?? null;
+
+    async function enableWifiAll() {
+        setBulkBusy(true);
+        await act(async () => {
+            for (const d of usbOnly) {
+                await post(`/devices/${d.udid}/connection`, { mode: 'wifi' });
+            }
+            return usbOnly.length;
+        }, `Wi‑Fi enabled on ${usbOnly.length} phone${usbOnly.length === 1 ? '' : 's'}`);
+        setBulkBusy(false);
+    }
+
+    return (
+        <div className="setup-phones">
+            <div className="setup-phones-toolbar">
+                <span className="setup-phones-summary">
+                    {ready.length} ready
+                    {attention.length ? ` · ${attention.length} need attention` : ''}
+                    {` · ${devices.length} total`}
+                </span>
+                {attention.length > 0 && (
+                    <button
+                        type="button"
+                        className="setup-filter"
+                        aria-pressed={filter === 'attention'}
+                        onClick={() => setFilter('attention')}
+                    >
+                        Needs attention
+                    </button>
+                )}
+                {ready.length > 0 && (
+                    <button
+                        type="button"
+                        className="setup-filter"
+                        aria-pressed={filter === 'ready'}
+                        onClick={() => setFilter('ready')}
+                    >
+                        Ready
+                    </button>
+                )}
+                <button
+                    type="button"
+                    className="setup-filter"
+                    aria-pressed={filter === 'all'}
+                    onClick={() => setFilter('all')}
+                >
+                    All
+                </button>
+                {usbOnly.length > 0 && (
+                    <Button size="sm" variant="secondary" isDisabled={bulkBusy} onPress={enableWifiAll}>
+                        <Wifi size={14} />
+                        Wi‑Fi on all
+                    </Button>
+                )}
+            </div>
+
+            {shown.length ? (
+                <>
+                    <Table className="striped-table">
+                        <Table.ScrollContainer>
+                            <Table.Content
+                                aria-label="Phones"
+                                onRowAction={(key) => {
+                                    const id = String(key);
+                                    const d = shown.find((x) => x.udid === id);
+                                    if (!d || d.status === 'ready') {
+                                        setOpenId(null);
+                                        return;
+                                    }
+                                    setOpenId((cur) => (cur === id ? null : id));
+                                }}
+                            >
+                                <Table.Header>
+                                    <Table.Column isRowHeader>Phone</Table.Column>
+                                    <Table.Column>Model</Table.Column>
+                                    <Table.Column>Link</Table.Column>
+                                    <Table.Column>Connection</Table.Column>
+                                    <Table.Column>Status</Table.Column>
+                                    <Table.Column aria-label="Actions"> </Table.Column>
+                                </Table.Header>
+                                <Table.Body>
+                                    {shown.map((d) => {
+                                        const copy = phoneCopy(d);
+                                        return (
+                                            <Table.Row
+                                                key={d.udid}
+                                                id={d.udid}
+                                                className={d.status === 'ready' ? undefined : 'clickable'}
+                                            >
+                                                <Table.Cell>
+                                                    <div className="ellipsis" style={{ fontWeight: 500 }}>
+                                                        {d.name}
+                                                    </div>
+                                                    <div className="small muted ellipsis">{connectionText(d)}</div>
+                                                </Table.Cell>
+                                                <Table.Cell>
+                                                    <span className="small dim">
+                                                        {modelName(d.model)}
+                                                        {d.iosVersion ? ` · ${d.iosVersion}` : ''}
+                                                    </span>
+                                                </Table.Cell>
+                                                <Table.Cell>
+                                                    <span className="row muted" style={{ gap: 6 }}>
+                                                        {d.connection === 'wifi' ? (
+                                                            <Wifi size={14} />
+                                                        ) : (
+                                                            <Cable size={14} />
+                                                        )}
+                                                        {d.connection === 'wifi' ? 'Wi‑Fi' : d.connection === 'usb' ? 'Cable' : '—'}
+                                                    </span>
+                                                </Table.Cell>
+                                                <Table.Cell>
+                                                    <ConnectionPicker device={d} compact />
+                                                </Table.Cell>
+                                                <Table.Cell>
+                                                    {d.status === 'ready' ? (
+                                                        <span className="setup-pill ok">Ready</span>
+                                                    ) : (
+                                                        <span className={`setup-pill ${copy.tone}`}>{copy.title}</span>
+                                                    )}
+                                                </Table.Cell>
+                                                <Table.Cell>
+                                                    {!d.online && (
+                                                        <Button
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            onPress={() =>
+                                                                act(() => del(`/devices/${d.udid}`), `Removed ${d.name}`)
+                                                            }
+                                                        >
+                                                            Remove
+                                                        </Button>
+                                                    )}
+                                                </Table.Cell>
+                                            </Table.Row>
+                                        );
+                                    })}
+                                </Table.Body>
+                            </Table.Content>
+                        </Table.ScrollContainer>
+                    </Table>
+                    {open && (
+                        <div className="setup-phone-detail">
+                            <PhoneState device={open} compact />
+                        </div>
+                    )}
+                </>
+            ) : (
+                <div className="setup-empty">
+                    <Smartphone size={22} />
+                    <div>
+                        <div style={{ fontWeight: 600 }}>
+                            {filter === 'attention' ? 'Nothing needs attention' : 'No phones in this view'}
+                        </div>
+                        <div className="small dim">Switch filter or plug another phone in.</div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 const openExternal = (url: string) => window.open(url, '_blank', 'noopener');
 
 export function SetupPage({ setup }: { setup: SetupInfo | null }) {
@@ -246,16 +423,18 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
     const flags = [usbDone, appDone, allReady];
     const firstOpen = flags.findIndex((x) => !x);
     const stateOf = (i: number): StepState => (flags[i] ? 'done' : i === firstOpen ? 'current' : 'todo');
-    const nextText = ['install the Apple USB driver', 'sign in with a spare Apple ID', 'plug in and unlock a phone'][
-        Math.max(0, firstOpen)
-    ];
+    const nextText = [
+        'Install the Apple driver so Windows can see iPhones.',
+        'Sign in with a spare Apple ID, then install Market on each phone.',
+        'Plug in a phone, unlock it, and finish any prompts on the screen.',
+    ][Math.max(0, firstOpen)];
 
     return (
         <>
             <div className="page-head">
                 <div>
-                    <h1>Setup</h1>
-                    <p>Three steps, once per phone. Finished steps fold away.</p>
+                    <h1>Get started</h1>
+                    <p>Three steps to connect your first iPhone. Finished steps tuck away.</p>
                 </div>
             </div>
 
@@ -265,18 +444,18 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
                 <Step
                     n={1}
                     state={stateOf(0)}
-                    title="Apple USB driver"
-                    summary="Installed. Windows can talk to iPhones."
+                    title="Connect Windows to iPhone"
+                    summary="Apple’s USB driver is installed."
                 >
                     <p className="dim">
                         {usbDone
-                            ? 'Installed. Windows can talk to iPhones.'
-                            : "Windows needs Apple's USB driver. Install the free Apple Devices app, then reopen Market."}
+                            ? 'Windows can talk to iPhones.'
+                            : 'Install the free Apple Devices app from Microsoft, then reopen Market.'}
                     </p>
                     {s && !s.usbOk && (
                         <Button
                             size="sm"
-                            variant="secondary"
+                            variant="primary"
                             className="mt-2.5"
                             onPress={() => openExternal('https://apps.microsoft.com/detail/9np83lwlpz9k')}
                         >
@@ -289,20 +468,23 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
                 <Step
                     n={2}
                     state={stateOf(1)}
-                    title="Control app"
-                    summary={`Signed in as ${sideload?.appleId ?? 'your Apple ID'}. Install it on each phone below.`}
+                    title="Sign in & install Market"
+                    summary={
+                        sideload?.appleId
+                            ? `Signed in as ${sideload.appleId}. Install on each phone below.`
+                            : 'Sign in with a spare Apple ID.'
+                    }
                 >
                     <p className="dim">
-                        Each phone runs a small control app signed with a spare free Apple ID. Sign in, then press
-                        Install on each phone (about a minute).
+                        Use a spare free Apple ID (not your main one). Market installs a small app on each phone so this
+                        PC can control it.
                     </p>
                     <div className="mt-2.5">
                         {sideload?.available ? (
                             <AppleIdPanel />
                         ) : (
                             <span className="small" style={{ color: 'var(--red)' }}>
-                                This copy of Market is missing its sideloading helper. Download Market again from
-                                affrev.com.
+                                This copy of Market is missing its install helper. Download Market again from affrev.com.
                             </span>
                         )}
                     </div>
@@ -311,79 +493,51 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
                 <Step
                     n={3}
                     state={stateOf(2)}
-                    title="Phones"
-                    summary={`${status.devices.length} phone${status.devices.length === 1 ? '' : 's'} ready.`}
+                    title="Add your phones"
+                    summary={
+                        status.devices.length
+                            ? `${status.devices.filter((d) => d.status === 'ready').length} of ${status.devices.length} ready.`
+                            : 'Waiting for a phone.'
+                    }
                 >
-                    <ol className="checklist">
-                        <li>Plug the phone in with a data cable and unlock it.</li>
-                        <li>Tap Trust This Computer on the phone.</li>
-                        <li>In Settings, set Auto-Lock to Never and turn on Do Not Disturb.</li>
-                        <li>
-                            After Install finishes, trust the app: Settings → General → VPN & Device Management → your
-                            Apple ID → Trust.
-                        </li>
-                    </ol>
-                    <p className="small muted">
-                        For cable-free use, set a phone to USB + Wi-Fi while it is plugged in. It then reconnects over
-                        Wi-Fi whenever it is unplugged.
-                    </p>
-                    <div className="col" style={{ marginTop: 12, gap: 8 }}>
-                        {status.devices.length ? (
-                            status.devices.map((d) => (
-                                <div key={d.udid} className="setup-phone">
-                                    <div className="setup-phone-row">
-                                        <div className="setup-phone-icon">
-                                            <Smartphone size={18} />
-                                        </div>
-                                        <div className="setup-phone-info">
-                                            <div className="row" style={{ gap: 8 }}>
-                                                <span className="ellipsis" style={{ fontWeight: 600 }}>
-                                                    {d.name}
-                                                </span>
-                                                <StatusBadge device={d} />
-                                            </div>
-                                            <span className="mono muted ellipsis">
-                                                {modelName(d.model)} · iOS {d.iosVersion}
-                                            </span>
-                                            <span className="small dim row" style={{ gap: 6 }}>
-                                                {d.connection === 'wifi' ? <Wifi size={12} /> : <Cable size={12} />}
-                                                {connectionText(d)}
-                                            </span>
-                                        </div>
-                                        <ConnectionPicker device={d} />
-                                        {!d.online && (
-                                            <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onPress={() => act(() => del(`/devices/${d.udid}`), `Removed ${d.name}`)}
-                                            >
-                                                Forget
-                                            </Button>
-                                        )}
-                                    </div>
-                                    {d.status !== 'ready' && (
-                                        <div style={{ borderTop: 'var(--hairline)' }}>
-                                            <PhoneState device={d} compact />
-                                        </div>
-                                    )}
-                                </div>
-                            ))
-                        ) : (
-                            <span className="small muted">No phones yet. Plug one in and it appears here.</span>
-                        )}
-                        <FoundOnWifi />
+                    <div className="onboard-tips">
+                        <div className="onboard-tip">
+                            <span className="onboard-tip-n">1</span>
+                            <span>Plug in with a data cable and unlock the phone.</span>
+                        </div>
+                        <div className="onboard-tip">
+                            <span className="onboard-tip-n">2</span>
+                            <span>Tap Trust This Computer when asked.</span>
+                        </div>
+                        <div className="onboard-tip">
+                            <span className="onboard-tip-n">3</span>
+                            <span>Install Market on the phone, then trust it under Settings if prompted.</span>
+                        </div>
                     </div>
+                    <p className="small muted" style={{ marginTop: 12 }}>
+                        For wireless use, choose Cable + Wi‑Fi while plugged in. After that you can unplug.
+                    </p>
+                    {status.devices.length ? (
+                        <PhoneOnboardList devices={status.devices} />
+                    ) : (
+                        <div className="setup-empty" style={{ marginTop: 16 }}>
+                            <Smartphone size={22} />
+                            <div>
+                                <div style={{ fontWeight: 600 }}>No phones yet</div>
+                                <div className="small dim">Plug one in — it shows up here automatically.</div>
+                            </div>
+                        </div>
+                    )}
+                    <FoundOnWifi />
                 </Step>
 
-                <Panel title="Options">
+                <Panel title="Preferences">
                     <div className="col" style={{ gap: 14 }}>
                         {desktop && openAtLogin !== null && (
                             <div className="row">
                                 <div className="grow">
                                     <div>Start with Windows</div>
-                                    <div className="small muted">
-                                        Runs in the tray so schedules keep going after a reboot.
-                                    </div>
+                                    <div className="small muted">Keeps schedules running after a reboot.</div>
                                 </div>
                                 <Toggle
                                     isSelected={openAtLogin}
@@ -398,7 +552,7 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
                         <AccountRow />
                         <VersionRow />
                         <div className="row">
-                            <span className="grow mono muted ellipsis">{s?.dataDir}</span>
+                            <span className="grow small muted ellipsis">{s?.dataDir}</span>
                             <Button
                                 size="sm"
                                 variant="secondary"
@@ -408,10 +562,12 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
                                 Data folder
                             </Button>
                         </div>
-                        {s?.helper === 'installing' && <span className="mono muted">iOS helper: {s.helperStep}</span>}
+                        {s?.helper === 'installing' && (
+                            <span className="small muted">Preparing tools… {s.helperStep}</span>
+                        )}
                         {s?.helper === 'error' && (
-                            <span className="mono" style={{ color: 'var(--red)' }}>
-                                iOS helper failed: {s.helperError}
+                            <span className="small" style={{ color: 'var(--red)' }}>
+                                Couldn’t prepare tools: {s.helperError}
                             </span>
                         )}
                     </div>

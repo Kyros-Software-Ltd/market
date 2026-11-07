@@ -1,20 +1,20 @@
 'use client';
-import { Button, Card } from '@heroui/react';
-import { AppWindow, ArrowUp, Bot, Pencil, Plug, Power, PowerOff, Sun } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { Empty, FpsChip, StatusBadge } from '@/components/common';
+import { Button, Card, Dropdown, Label } from '@heroui/react';
+import { AppWindow, ArrowUp, Bot, MoreHorizontal, Pencil, Plug, Power, PowerOff, Sun } from 'lucide-react';
+import { type Key, useEffect, useState } from 'react';
+import { Empty, FpsChip } from '@/components/common';
 import { LiveScreen } from '@/components/LiveScreen';
 import { PhoneState } from '@/components/PhoneState';
-import { ActionMenu, Check, SelectField, TextInput } from '@/components/ui';
+import { TextInput } from '@/components/ui';
 import { control, type Device, get, post } from '@/lib/api';
 import { ClaudeCodeIcon, HomeIcon } from '@/lib/icons';
 import { useAction, useStore } from '@/lib/store';
 
 export function PhonesPage() {
-    const { status, selected, setSelected, toast } = useStore();
+    const { status, toast } = useStore();
     const [apps, setApps] = useState<{ bundleId: string; name: string }[]>([]);
     const ready = status.devices.filter((d) => d.status === 'ready');
-    const sel = [...selected];
+    const targets = ready.map((d) => d.udid);
 
     // The app list comes from the first ready phone; most farms run the same apps on every phone.
     const firstReady = ready[0]?.udid;
@@ -25,54 +25,75 @@ export function PhonesPage() {
                 .catch(() => {});
     }, [firstReady]);
 
-    const bulk = (action: string, args: Record<string, unknown> = {}) =>
-        control(action, sel, args).catch((e: Error) => toast(e.message, true));
+    const bulk = (action: string, args: Record<string, unknown> = {}) => {
+        if (!targets.length) return;
+        control(action, targets, args).catch((e: Error) => toast(e.message, true));
+    };
+
+    function onAction(key: Key) {
+        const id = String(key);
+        if (id === 'home') bulk('home');
+        else if (id === 'wake') bulk('unlock');
+        else if (id === 'scroll') bulk('swipe', { x1: 0.5, y1: 0.75, x2: 0.5, y2: 0.25, ms: 280 });
+        else if (id.startsWith('app:')) bulk('launch', { bundleId: id.slice(4) });
+    }
 
     return (
         <>
             <div className="page-head">
-                <div>
+                <div className="row" style={{ gap: 2, alignItems: 'center' }}>
                     <h1>Phones</h1>
+                    {status.devices.length > 0 && (
+                        <Dropdown>
+                            <Button
+                                isIconOnly
+                                size="sm"
+                                variant="ghost"
+                                aria-label="Actions for all phones"
+                                isDisabled={!targets.length}
+                            >
+                                <MoreHorizontal size={18} />
+                            </Button>
+                            <Dropdown.Popover className="phones-actions-pop min-w-48">
+                                <Dropdown.Menu onAction={onAction} disabledKeys={apps.length ? [] : ['open-app']}>
+                                    <Dropdown.Item id="home" textValue="Home">
+                                        <HomeIcon width={15} height={15} />
+                                        <Label>Home</Label>
+                                    </Dropdown.Item>
+                                    <Dropdown.Item id="wake" textValue="Wake">
+                                        <Sun size={15} />
+                                        <Label>Wake</Label>
+                                    </Dropdown.Item>
+                                    <Dropdown.Item id="scroll" textValue="Scroll">
+                                        <ArrowUp size={15} />
+                                        <Label>Scroll</Label>
+                                    </Dropdown.Item>
+                                    <Dropdown.SubmenuTrigger>
+                                        <Dropdown.Item id="open-app" textValue="Open app">
+                                            <AppWindow size={15} />
+                                            <Label>Open app</Label>
+                                            <Dropdown.SubmenuIndicator />
+                                        </Dropdown.Item>
+                                        <Dropdown.Popover className="phones-actions-pop max-h-80 min-w-52">
+                                            <Dropdown.Menu onAction={onAction}>
+                                                {apps.map((a) => (
+                                                    <Dropdown.Item
+                                                        key={a.bundleId}
+                                                        id={`app:${a.bundleId}`}
+                                                        textValue={a.name}
+                                                    >
+                                                        <Label>{a.name}</Label>
+                                                    </Dropdown.Item>
+                                                ))}
+                                            </Dropdown.Menu>
+                                        </Dropdown.Popover>
+                                    </Dropdown.SubmenuTrigger>
+                                </Dropdown.Menu>
+                            </Dropdown.Popover>
+                        </Dropdown>
+                    )}
                 </div>
             </div>
-
-            {status.devices.length > 0 && (
-                <div className="bar">
-                    <Check
-                        isSelected={ready.length > 0 && sel.length === ready.length}
-                        onChange={(v) => setSelected(new Set(v ? ready.map((d) => d.udid) : []))}
-                    >
-                        Select all
-                    </Check>
-                    <span className="mono muted">{sel.length ? `${sel.length} selected` : ''}</span>
-                    <span className="grow" />
-                    <Button size="sm" variant="secondary" isDisabled={!sel.length} onPress={() => bulk('home')}>
-                        <HomeIcon width={14} height={14} />
-                        Home
-                    </Button>
-                    <Button size="sm" variant="secondary" isDisabled={!sel.length} onPress={() => bulk('unlock')}>
-                        <Sun size={14} />
-                        Wake
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="secondary"
-                        isDisabled={!sel.length}
-                        onPress={() => bulk('swipe', { x1: 0.5, y1: 0.75, x2: 0.5, y2: 0.25, ms: 280 })}
-                    >
-                        <ArrowUp size={14} />
-                        Scroll
-                    </Button>
-                    <div className="sep" />
-                    <ActionMenu
-                        label="Open app"
-                        icon={<AppWindow size={14} />}
-                        isDisabled={!sel.length}
-                        items={apps.map((a) => ({ key: a.bundleId, label: a.name }))}
-                        onAction={(bundleId) => bulk('launch', { bundleId })}
-                    />
-                </div>
-            )}
 
             {status.devices.length ? (
                 <div className="phones">
@@ -93,21 +114,13 @@ export function PhonesPage() {
 }
 
 function PhoneCard({ device: d }: { device: Device }) {
-    const { status, selected, setSelected, setFocus, focus, toast } = useStore();
+    const { status, setFocus, focus } = useStore();
     const act = useAction();
-    const isSelected = selected.has(d.udid);
     const live = d.status === 'ready';
     const [fps, setFps] = useState<number | null>(null);
     const fresh = d.lastActivity && Date.now() - d.lastActivity.at < 6000 ? d.lastActivity : null;
     const job = status.jobs.find((j) => j.udid === d.udid && j.status === 'running');
     const connected = d.status === 'ready' || d.status === 'starting';
-
-    function toggle(on: boolean) {
-        const next = new Set(selected);
-        if (on) next.add(d.udid);
-        else next.delete(d.udid);
-        setSelected(next);
-    }
 
     // Inline rename: the name turns into a field; Enter saves, Escape or clicking away cancels.
     const [draft, setDraft] = useState<string | null>(null);
@@ -119,10 +132,9 @@ function PhoneCard({ device: d }: { device: Device }) {
 
     return (
         <Card
-            className={`panel phone ${isSelected ? 'selected' : ''} ${focus === d.udid ? 'focused' : ''} ${fresh?.actor === 'claude' ? 'claude' : ''}`}
+            className={`panel phone ${focus === d.udid ? 'focused' : ''} ${fresh?.actor === 'claude' ? 'claude' : ''}`}
         >
             <div className="phone-head">
-                <Check isSelected={isSelected} isDisabled={d.status !== 'ready'} onChange={toggle} />
                 {draft === null ? (
                     <>
                         <span
@@ -160,8 +172,7 @@ function PhoneCard({ device: d }: { device: Device }) {
                         />
                     </div>
                 )}
-                <StatusBadge device={d} />
-                {d.online && (
+                {d.online ? (
                     <Button
                         isIconOnly
                         size="sm"
@@ -171,23 +182,10 @@ function PhoneCard({ device: d }: { device: Device }) {
                     >
                         {connected ? <PowerOff size={14} /> : <Power size={14} />}
                     </Button>
-                )}
-            </div>
-            <div className="row" style={{ padding: '0 12px 8px', gap: 8 }}>
-                <span className="mono muted" style={{ fontSize: 11 }}>Control</span>
-                <SelectField
-                    value={d.enginePreference || 'auto'}
-                    onChange={(preference) => post(`/devices/${d.udid}/engine`, { preference }).catch((e: Error) => toast(e.message, true))}
-                    options={[
-                        { key: 'auto', label: 'Auto' },
-                        { key: 'wda', label: 'WDA' },
-                        ...(parseInt(d.iosVersion, 10) >= 27 ? [{ key: 'direct', label: 'Apple direct' }] : []),
-                    ]}
-                />
-                <span className="mono muted" style={{ fontSize: 10 }}>{d.engine === 'direct' ? 'Apple services' : d.engine === 'wda' ? 'WebDriverAgent' : ''}</span>
+                ) : null}
             </div>
             <div className="screen dark" data-theme="dark" onClick={() => setFocus(d.udid)}>
-                {live ? <LiveScreen udid={d.udid} engine={d.engine} onFps={setFps} /> : <PhoneState device={d} />}
+                {live ? <LiveScreen udid={d.udid} profile="grid" onFps={setFps} /> : <PhoneState device={d} />}
                 {live && <FpsChip fps={fps} />}
                 {job && (
                     <div className="overlay-chip top">

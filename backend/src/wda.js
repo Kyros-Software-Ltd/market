@@ -168,6 +168,28 @@ class WDAClient {
         return this.session('POST', '/wda/keys', { value: [...text] });
     }
 
+    /** Best-effort map of DeviceKit-style key combos onto WDA's /wda/keys. */
+    keys(combos) {
+        const named = {
+            return: '\n',
+            enter: '\n',
+            backspace: '\b',
+            delete: '\b',
+            tab: '\t',
+            space: ' ',
+            escape: '\uE00C',
+        };
+        const value = [];
+        for (const c of Array.isArray(combos) ? combos : []) {
+            const key = String(c.key || c);
+            const lower = key.toLowerCase();
+            if (named[lower] !== undefined) value.push(named[lower]);
+            else if (key.length === 1) value.push(key);
+        }
+        if (!value.length) return Promise.resolve();
+        return this.session('POST', '/wda/keys', { value });
+    }
+
     home() {
         return this.request('POST', '/wda/homescreen');
     }

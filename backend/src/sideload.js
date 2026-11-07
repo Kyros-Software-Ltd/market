@@ -226,7 +226,8 @@ async function pump() {
         devices?.get(udid).log(auto ? 'Re-signing the control app…' : 'Installing the control app…');
     } catch {}
     try {
-        const ipa = await setup.ensureWdaIpa();
+        const engine = loadConfig().controlEngine === 'devicekit' ? 'devicekit' : 'wda';
+        const ipa = await setup.ensureControlIpa(engine);
         const done = await runHelper('install', ['install', '--apple-id', appleId, '--ipa', ipa, '--udid', udid], {
             udid,
         });

@@ -22,8 +22,9 @@ export interface Device {
     action: { kind: string; title: string; text: string } | null;
     error: string;
     mjpegPort?: number;
-    engine?: 'wda' | 'direct' | null; // how Market controls it: the control app, or Apple's own services (iOS 27)
-    enginePreference: 'auto' | 'wda' | 'direct';
+    engine?: 'devicekit' | 'wda' | null;
+    enginePreference: 'auto' | 'devicekit' | 'wda';
+    legacy?: boolean;
     connection: 'usb' | 'wifi' | null; // how it's connected right now
     mode: 'usb' | 'wifi'; // Setup choice: USB only, or USB + Wi-Fi (cable first)
     canUnplug?: boolean; // on the cable, and already visible over Wi-Fi
