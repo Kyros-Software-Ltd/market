@@ -174,7 +174,7 @@ function PhoneCard({ device: d }: { device: Device }) {
                 )}
             </div>
             <div className="screen dark" data-theme="dark" onClick={() => setFocus(d.udid)}>
-                {live ? <LiveScreen udid={d.udid} onFps={setFps} /> : <PhoneState device={d} />}
+                {live ? <LiveScreen udid={d.udid} engine={d.engine} onFps={setFps} /> : <PhoneState device={d} />}
                 {live && <FpsChip fps={fps} />}
                 {job && (
                     <div className="overlay-chip top">

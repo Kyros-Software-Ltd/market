@@ -15,7 +15,8 @@
 
     "localPorts": {
         "wdaBase": 8100,
-        "mjpegBase": 9100
+        "mjpegBase": 9100,
+        "directBase": 9300
     },
 
     "usbmuxProxyPort": 27115,
@@ -23,6 +24,7 @@
 
     "startTunnel": true,
     "autoConnect": true,
+    "directControlMinIos": 27,
 
     "sideloadAnisetteUrl": "https://new.ani.sidestore.io"
 }

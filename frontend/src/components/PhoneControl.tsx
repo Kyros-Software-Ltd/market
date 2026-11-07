@@ -311,6 +311,7 @@ export function PhoneControl({ udid }: { udid: string }) {
                         <LiveScreen
                             ref={imgRef}
                             udid={device.udid}
+                            engine={device.engine}
                             onFps={setFps}
                             onMouseDown={onDown}
                             onMouseMove={onMove}

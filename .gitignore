@@ -14,3 +14,4 @@ dist/
 .update-old/
 sideload/target/
 sideload/anisette/target/
+*.local.md

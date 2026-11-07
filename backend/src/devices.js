@@ -7,6 +7,7 @@ const path = require('node:path');
 const dgram = require('node:dgram');
 const { execFile } = require('node:child_process');
 const goios = require('./goios');
+const { DirectClient, pairForWifi, startDirect } = require('./direct');
 const { WDAClient } = require('./wda');
 const { DATA_DIR, readJson, writeJson } = require('./paths');
 const setup = require('./setup');
@@ -82,6 +83,7 @@ class Device {
         this.actionAt = 0;
         this.error = '';
         this.wda = null;
+        this.engine = null; // 'wda' | 'direct' while connected
         this.procs = [];
         this.logs = [];
         this.connecting = null;
@@ -118,6 +120,7 @@ class Device {
             action: this.status === 'action' ? this.action : null,
             error: this.error,
             mjpegPort: this.mjpegPort,
+            engine: this.engine,
             connection: this.connection,
             mode: this.mode,
             canUnplug: this.connection === 'usb' && this.mode === 'wifi' && this.wifiReady,
@@ -338,6 +341,11 @@ class DeviceManager {
             device.step = 'Checking the phone trusts this PC';
             await this.checkTrusted(device);
 
+            if (this.usesDirectControl(device)) {
+                await this.connectDirect(device);
+                return;
+            }
+
             device.step = 'Checking the control app';
             const bundleId = await this.findWdaBundle(device);
             device.wdaBundleId = bundleId;
@@ -448,6 +456,7 @@ class DeviceManager {
                         .catch(() => null),
                 );
             device.wda = client;
+            device.engine = 'wda';
             device.mjpegHost = '127.0.0.1';
             device.mjpegPort = mjpegPort;
             // Over Wi-Fi, talk to the control app at the phone's own address: going through the
@@ -469,19 +478,7 @@ class DeviceManager {
                     device.mjpegHost = ip;
                     device.mjpegPort = wdaCfg.mjpegDevicePort;
                     device.log(`Using the phone's Wi-Fi address ${ip}`);
-                    // iPhones put Wi-Fi to sleep between packets (802.11 power save), which adds up to
-                    // seconds of delay. A tiny packet every 15 ms keeps the radio awake: measured ~2x
-                    // lower latency and more frames. Stopped with the phone's other processes.
-                    const sock = dgram.createSocket('udp4');
-                    const ping = Buffer.alloc(1);
-                    const timer = setInterval(() => sock.send(ping, 9, ip, () => {}), 15);
-                    device.procs.push({
-                        removeAllListeners() {},
-                        kill() {
-                            clearInterval(timer);
-                            sock.close();
-                        },
-                    });
+                    this.keepWifiAwake(device, ip);
                 }
             }
             device.status = 'ready';
@@ -522,6 +519,102 @@ class DeviceManager {
             }
             throw e;
         }
+    }
+
+    // iPhones put Wi-Fi to sleep between packets (802.11 power save), which adds up to seconds
+    // of delay. A tiny packet every 15 ms keeps the radio awake: measured ~2x lower latency and
+    // more frames. Stopped with the phone's other processes.
+    keepWifiAwake(device, ip) {
+        if (!ip) return;
+        const sock = dgram.createSocket('udp4');
+        const ping = Buffer.alloc(1);
+        const timer = setInterval(() => sock.send(ping, 9, ip, () => {}), 15);
+        device.procs.push({
+            removeAllListeners() {},
+            kill() {
+                clearInterval(timer);
+                sock.close();
+            },
+        });
+    }
+
+    // iOS 27 lets a PC see and touch the phone through Apple's own services.
+    usesDirectControl(device) {
+        return device.iosMajor >= this.config.directControlMinIos;
+    }
+
+    async connectDirect(device) {
+        const { localPorts, appleUsbmuxPort } = this.config;
+        const wifi = device.connection === 'wifi';
+        const usbmux = `127.0.0.1:${appleUsbmuxPort}`;
+        // These go over the older connection, which iOS 27 only allows on the cable.
+        if (!wifi) {
+            device.step = 'Checking Developer Mode';
+            await this.checkDeveloperMode(device);
+            device.step = 'Mounting developer image';
+            await this.mountDeveloperImage(device);
+        }
+        device.step = 'Getting the iOS helper ready';
+        const python = await setup.ensureHelper((step) => {
+            device.step = step;
+            device.log(step);
+        });
+
+        if (!wifi) {
+            device.step = 'Setting up Wi-Fi';
+            await pairForWifi(python, device.udid, usbmux).catch((e) =>
+                device.log(`Could not set up Wi-Fi: ${e.message}`),
+            );
+        }
+
+        device.step = 'Connecting to the phone';
+        const streamPort = localPorts.directBase + device.slot * 2;
+        const controlPort = streamPort + 1;
+        let exited = false;
+        let output = '';
+        const child = startDirect(python, {
+            udid: device.udid,
+            streamPort,
+            controlPort,
+            usbmux,
+            wifi,
+            onLog: (l) => {
+                output = `${output}${l}\n`.slice(-4000);
+                device.log(`[direct] ${l}`);
+            },
+        });
+        device.procs.push(child);
+        child.on('exit', (code) => {
+            exited = true;
+            device.log(`Phone connection stopped (exit ${code})`);
+            if (device.status === 'ready') device.status = 'idle'; // auto-connect brings it back
+        });
+
+        const client = new DirectClient(streamPort, controlPort);
+        const deadline = Date.now() + 60000;
+        for (;;) {
+            if (exited) {
+                if (/locked|passcode/i.test(output)) throw ACTIONS.unlock(device);
+                if (/camera or microphone/i.test(output))
+                    throw new Error('The camera or microphone is in use on the phone. Close that app and try again.');
+                if (wifi)
+                    throw new Error(`${device.name} couldn't connect over Wi-Fi. Plug it in once, then it can use Wi-Fi.`);
+                throw new Error(`The phone connection stopped. ${output.trim().split('\n').pop() || ''}`.trim());
+            }
+            if (!client.size) client.size = await client.status().catch(() => null);
+            if (client.size && (await client.streaming())) break;
+            if (Date.now() > deadline) throw new Error("The phone's screen did not start. Unlock it and try again.");
+            await sleep(1000);
+        }
+
+        if (wifi) this.keepWifiAwake(device, this.wifi?.data[device.udid]?.ip);
+        device.wda = client;
+        device.engine = 'direct';
+        device.status = 'ready';
+        device.step = '';
+        device.errorRetries = 0;
+        device.log(`Ready, no control app needed (screen ${client.size.width}x${client.size.height} pt)`);
+        this.remember(device);
     }
 
     async checkDeveloperMode(device) {
@@ -633,6 +726,7 @@ class DeviceManager {
         }
         device.procs = [];
         device.wda = null;
+        device.engine = null;
     }
 
     shutdown() {

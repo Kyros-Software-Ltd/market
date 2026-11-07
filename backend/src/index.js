@@ -205,6 +205,29 @@ function createApp() {
         req.on('close', () => upstream.destroy());
     });
 
+    // iOS 27 phones: the screen as HEVC video and the settings to decode it (see direct.js).
+    for (const [route, upstreamPath] of [
+        ['codec', '/codec'],
+        ['video', '/stream.bin'],
+    ]) {
+        app.get(`/api/devices/:udid/${route}`, (req, res) => {
+            const port = devices.devices.get(req.params.udid)?.wda?.streamPort;
+            if (!port) return res.status(409).json({ error: 'Phone is not streaming' });
+            const upstream = http.get({ host: '127.0.0.1', port, path: upstreamPath }, (up) => {
+                res.writeHead(up.statusCode || 200, {
+                    'Content-Type': up.headers['content-type'] || 'application/octet-stream',
+                    'Cache-Control': 'no-store',
+                });
+                up.pipe(res);
+            });
+            upstream.on('error', (e) => {
+                if (!res.headersSent) res.status(502).json({ error: e.message });
+                else res.end();
+            });
+            req.on('close', () => upstream.destroy());
+        });
+    }
+
     // What Claude "sees": the screen scaled to the phone's size in points (so a pixel
     // in the image is exactly a tap coordinate), plus the labelled elements on screen.
     app.get(

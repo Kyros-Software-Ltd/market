@@ -64,6 +64,17 @@ async function hasPymobiledevice(python) {
     }
 }
 
+// Installed exactly: direct.py reaches into this version's screen server.
+const HELPER_VERSION = '11.50.0';
+
+async function helperIsCurrent(python) {
+    const code = 'import importlib.metadata as m;print(m.version("pymobiledevice3"))';
+    const version = await run(python, ['-c', code], { timeout: 60000 }).catch(() => '');
+    return String(version).trim() === HELPER_VERSION;
+}
+
+const PIP_INSTALL = ['-m', 'pip', 'install', '--quiet', '--disable-pip-version-check', '--no-warn-script-location'];
+
 async function findHelper() {
     for (const p of pythonCandidates()) if (fs.existsSync(p) && (await hasPymobiledevice(p))) return p;
     return null;
@@ -90,6 +101,10 @@ function ensureHelper(onStep = () => {}) {
     installing = (async () => {
         const existing = await findHelper();
         if (existing) {
+            if (!(await helperIsCurrent(existing))) {
+                onStep('Updating the iOS helper (~1 min)');
+                await run(existing, [...PIP_INSTALL, `pymobiledevice3==${HELPER_VERSION}`]);
+            }
             state.helper = 'ready';
             return existing;
         }
@@ -126,15 +141,7 @@ function ensureHelper(onStep = () => {}) {
                 ]);
             }
             step('Installing the iOS helper (first time only, ~2 min)');
-            await run(python, [
-                '-m',
-                'pip',
-                'install',
-                '--quiet',
-                '--disable-pip-version-check',
-                '--no-warn-script-location',
-                'pymobiledevice3',
-            ]);
+            await run(python, [...PIP_INSTALL, `pymobiledevice3==${HELPER_VERSION}`]);
             state.helper = 'ready';
             state.helperStep = '';
             return python;

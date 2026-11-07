@@ -2,9 +2,11 @@
 // A phone's live screen over USB. Reads the control app's MJPEG stream itself, decodes
 // frames off the main thread and paints only the newest one each display refresh, so it
 // never flashes half-drawn frames or falls behind like a plain <img> showing the stream.
+// Phones on Apple's own services (iOS 27) send video instead, handled by VideoScreen.
 import { forwardRef, type HTMLAttributes, useEffect, useImperativeHandle, useRef } from 'react';
+import { VideoScreen } from './VideoScreen';
 
-type Props = HTMLAttributes<HTMLCanvasElement> & {
+export type ScreenProps = HTMLAttributes<HTMLCanvasElement> & {
     udid: string;
     /** Called once a second with the frames actually painted in that second. */
     onFps?: (fps: number) => void;
@@ -25,7 +27,13 @@ const find = (b: Uint8Array, x: number, y: number, from: number) => {
     return -1;
 };
 
-export const LiveScreen = forwardRef<HTMLCanvasElement, Props>(function LiveScreen({ udid, onFps, ...rest }, ref) {
+type Props = ScreenProps & { engine?: 'wda' | 'direct' | null };
+
+export const LiveScreen = forwardRef<HTMLCanvasElement, Props>(function LiveScreen({ engine, ...rest }, ref) {
+    return engine === 'direct' ? <VideoScreen ref={ref} {...rest} /> : <MjpegScreen ref={ref} {...rest} />;
+});
+
+const MjpegScreen = forwardRef<HTMLCanvasElement, ScreenProps>(function MjpegScreen({ udid, onFps, ...rest }, ref) {
     const canvas = useRef<HTMLCanvasElement>(null);
     useImperativeHandle(ref, () => canvas.current!, []);
     const fpsCb = useRef(onFps);

@@ -31,6 +31,8 @@ Each step that needs you shows the exact steps on the phone's card. The app re-c
 
 **Wi-Fi:** in **Setup → Phones**, set a phone to **USB + Wi-Fi** while it's plugged in. It then uses the cable when plugged in and Wi-Fi when not. Phones this PC already trusts that are on your Wi-Fi show under **Found on Wi-Fi**. A phone must be plugged in once to trust the PC (Apple's rule). The live view over Wi-Fi depends on the phone's signal: 5 GHz and the screen on work best.
 
+**iOS 27 phones need no control app.** Market uses Apple's own developer services for them, which gives a live screen at around 50 fps on the cable and needs no Apple ID or weekly re-sign. You still trust the PC and turn on Developer Mode once. Plug each one in once and it can then run over Wi-Fi as well, usually at a lower frame rate; if the phone restarts, plug it in again so Market can mount the developer image. Two things don't work on these phones yet: reading on-screen labels (`tapText`, `waitForText` and the element list, so tap by position), and sending media. Typing covers plain keyboard characters, and there's no phone audio. Older iOS versions keep using the control app. To turn this off, set `directControlMinIos` to `99` in Market's `config.json`.
+
 Tips: on each phone, set **Auto-Lock → Never** and turn on **Do Not Disturb**. In **Setup → Options**, turn on **Start with Windows** to have Market start in the background when you sign in, so schedules keep running; open http://localhost:4100 to see it.
 
 ## Pages
@@ -129,7 +131,7 @@ These open-source tools do the heavy lifting:
 - [go-ios](https://github.com/danielpaulus/go-ios) handles USB, the iOS 17+ tunnel, the developer image and starting WebDriverAgent.
 - [WebDriverAgent](https://github.com/appium/WebDriverAgent) streams the screen and performs touches. The app downloads it from Appium's releases and packages `WDA.ipa` with file sharing switched on.
 - `sideload/` (Rust, built on [isideload](https://github.com/nab138/isideload)) signs `WDA.ipa` with your Apple ID and installs it; Market re-signs plugged-in phones every week. The Apple sign-in uses iCloud for Windows' own anisette data on your PC.
-- [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) copies media to the phones and mounts the developer image on iOS 17+ when go-ios can't. The app installs it the first time it's needed.
+- [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) copies media to the phones, mounts the developer image on iOS 17+ when go-ios can't, and runs iOS 27 phones without the control app (`backend/src/direct.js`, `backend/src/py/direct.py`). The app installs it the first time it's needed.
 
 Data lives in `%APPDATA%\Market`, moved over automatically from the old `Marketing Phones` folder: phone names, automations, schedules, job history, the media library, `WDA.ipa` and each phone's control-app countdown. Your Apple ID password is kept in Windows' Credential Manager, never in the data folder.
 
