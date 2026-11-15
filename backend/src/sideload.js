@@ -226,7 +226,12 @@ async function pump() {
         devices?.get(udid).log(auto ? 'Re-signing the control app…' : 'Installing the control app…');
     } catch {}
     try {
-        const engine = loadConfig().controlEngine === 'devicekit' ? 'devicekit' : 'wda';
+        // iOS 27+ needs DeviceKit (Wi-Fi control only works through pymobiledevice3's runner).
+        let engine = loadConfig().controlEngine === 'devicekit' ? 'devicekit' : 'wda';
+        try {
+            const phone = devices?.get(udid);
+            if (phone && phone.iosMajor >= 27) engine = 'devicekit';
+        } catch {}
         const ipa = await setup.ensureControlIpa(engine);
         const done = await runHelper('install', ['install', '--apple-id', appleId, '--ipa', ipa, '--udid', udid], {
             udid,

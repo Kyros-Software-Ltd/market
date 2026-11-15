@@ -39,13 +39,13 @@ export function phoneCopy(d: Device, installing = false): PhoneCopy {
     }
 
     if (d.status === 'action' && d.action) {
-        return actionCopy(d.action.kind, d.name, d.action.text);
+        return actionCopy(d.action.kind, d.name, d.action.text, d.action.title);
     }
 
     if (d.status === 'starting' || d.status === 'idle') {
         return {
             title: 'Setting up',
-            detail: 'Keep the phone unlocked — Market finishes this on its own.',
+            detail: d.step || 'Keep the phone unlocked — Market finishes this on its own.',
             tone: 'progress',
         };
     }
@@ -53,12 +53,18 @@ export function phoneCopy(d: Device, installing = false): PhoneCopy {
     return { title: 'Waiting', tone: 'neutral' };
 }
 
-function actionCopy(kind: string, name: string, fallback: string): PhoneCopy {
+function actionCopy(kind: string, name: string, fallback: string, title?: string): PhoneCopy {
     switch (kind) {
         case 'trust':
             return {
-                title: 'Trust this PC',
-                detail: `Unlock ${name}, tap Trust This Computer, then enter the passcode.`,
+                title: title || 'Trust this PC',
+                detail: fallback || `Unlock ${name}, tap Trust This Computer, then enter the passcode.`,
+                tone: 'wait',
+            };
+        case 'plug-in':
+            return {
+                title: title || 'Plug in once for Wi‑Fi',
+                detail: fallback || `${name} needs one cable session so wireless control can be set up.`,
                 tone: 'wait',
             };
         case 'install':
@@ -93,7 +99,7 @@ function actionCopy(kind: string, name: string, fallback: string): PhoneCopy {
             };
         default:
             return {
-                title: 'Needs a moment on the phone',
+                title: title || 'Needs a moment on the phone',
                 detail: plainError(fallback) || 'Follow the prompt on the phone, then wait.',
                 tone: 'wait',
             };

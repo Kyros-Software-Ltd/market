@@ -1,8 +1,8 @@
 // Finds iPhones on USB or Wi-Fi and gets each one to "ready" with no manual steps on the PC.
-// DeviceKit handles taps/swipes (JSON-RPC). Live view prefers go-ios screenshot --stream so
-// PC actions do not freeze the picture (DeviceKit's own /mjpeg shares the XCTest process with
-// gestures). USB / older Wi-Fi use a per-phone go-ios tunnel; iOS 27 Wi-Fi uses pymobiledevice3
-// to start DeviceKit. No CoreDevice screen stream — avoids app blackouts.
+// One engine for every iOS version: WebDriverAgent (control :8100, MJPEG :9100 separate so
+// taps do not freeze the live view). USB / most Wi-Fi: go-ios tunnel + runwda. iOS 27 Wi-Fi:
+// RemotePairing via pymobiledevice3 then the same WDA ports (wda_runner.py). CoreDevice Direct
+// and DeviceKit are debug/override only — not the brand default.
 const path = require('node:path');
 const net = require('node:net');
 const dgram = require('node:dgram');
@@ -10,6 +10,8 @@ const { execFile } = require('node:child_process');
 const goios = require('./goios');
 const { DeviceKitClient, mjpegPath } = require('./devicekit');
 const { pairForWifi, startDeviceKitRunner } = require('./devicekit-runner');
+const { startWdaRunner, pairForWifi: pairWdaWifi } = require('./wda-runner');
+const { DirectClient, pairForWifi: pairDirectWifi, startDirect } = require('./direct');
 const { WDAClient } = require('./wda');
 const { DATA_DIR, readJson, writeJson } = require('./paths');
 const setup = require('./setup');
@@ -18,7 +20,7 @@ const controlApp = require('./controlapp');
 const NICKNAMES_FILE = path.join(DATA_DIR, 'nicknames.json');
 const KNOWN_FILE = path.join(DATA_DIR, 'known-phones.json'); // udid -> { name, model, iosVersion }
 const ACTION_RETRY_MS = 8000;
-const ERROR_RETRY_MS = 15000;
+const ERROR_RETRY_MS = 12000;
 const ERROR_RETRIES = 5;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -71,7 +73,7 @@ const ACTIONS = {
     unlock: (d) => new NeedsAction('unlock', 'Unlock the phone', `Unlock ${d.name} so setup can continue.`),
     plugInImage: (d) =>
         new NeedsAction(
-            'trust',
+            'plug-in',
             'Plug in once for Wi‑Fi',
             `${d.name} needs one cable session so wireless control can be set up. After that you can unplug.`,
         ),
@@ -96,7 +98,7 @@ class Device {
         this.tunnelInfoPort = null; // this phone's private go-ios tunnel agent port
         this.tunnelProc = null; // long-lived userspace tunnel for this phone only
         this.tunnelRestartedAt = 0;
-        this.pmd3Runner = false; // DeviceKit started via pymobiledevice3 (iOS 27 Wi-Fi)
+        this.pmd3Runner = false; // WDA (or legacy DeviceKit) started via pymobiledevice3 RSD
         this.viewProc = null; // go-ios screenshot --stream (live view, separate from DeviceKit)
         this.procs = [];
         this.logs = [];
@@ -114,6 +116,7 @@ class Device {
         this.devModeOk = false;
         this.imageMountedFor = null; // iosVersion string when mount last succeeded
         this.cachedBundleId = null; // DeviceKit / WDA bundle id while the app stays installed
+        this.setupDone = false; // Trust / cable ceremony finished at least once
     }
 
     log(line) {
@@ -179,6 +182,7 @@ class DeviceManager {
             // DeviceKit freezes live view on every PC tap (same XCTest process as MJPEG).
             // WDA keeps stream on its own port — treat saved "devicekit" as auto → WDA.
             device.enginePreference = info.enginePreference === 'wda' ? 'wda' : 'auto';
+            device.setupDone = !!info.setupDone;
             device.name = this.nicknames[udid] || info.name || device.name;
             if (this.wifi) device.mode = this.wifi.mode(udid);
             this.devices.set(udid, device);
@@ -186,11 +190,38 @@ class DeviceManager {
     }
 
     remember(device) {
-        const next = { name: device.name, model: device.model, iosVersion: device.iosVersion, enginePreference: device.enginePreference };
-        const old = this.known[device.udid];
-        if (old && old.name === next.name && old.model === next.model && old.iosVersion === next.iosVersion && old.enginePreference === next.enginePreference) return;
+        const old = this.known[device.udid] || {};
+        const next = {
+            name: device.name,
+            model: device.model,
+            iosVersion: device.iosVersion,
+            enginePreference: device.enginePreference,
+            // Survives disconnect: we already finished Trust / cable setup for this phone.
+            setupDone: !!(old.setupDone || device.setupDone),
+        };
+        if (
+            old.name === next.name &&
+            old.model === next.model &&
+            old.iosVersion === next.iosVersion &&
+            old.enginePreference === next.enginePreference &&
+            !!old.setupDone === next.setupDone
+        ) {
+            return;
+        }
         this.known[device.udid] = next;
         writeJson(KNOWN_FILE, this.known);
+    }
+
+    markSetupDone(device) {
+        device.setupDone = true;
+        this.remember(device);
+    }
+
+    alreadySetUp(device) {
+        if (device.setupDone || this.known[device.udid]?.setupDone) return true;
+        // Wi-Fi mode was turned on only after a successful cable/trust session.
+        if (this.wifi?.mode?.(device.udid) === 'wifi') return true;
+        return false;
     }
 
     /** Removes a phone that is away from the list (it comes back by itself if it connects again). */
@@ -205,11 +236,27 @@ class DeviceManager {
 
     start() {
         this.loadKnown();
+        this.migrateSetupDone();
         const tick = async () => {
             await this.refresh().catch(() => {});
             this.timer = setTimeout(tick, 3000);
         };
         tick();
+    }
+
+    // Older installs never stored setupDone — Wi-Fi mode means Trust already happened.
+    migrateSetupDone() {
+        let changed = false;
+        for (const [udid, info] of Object.entries(this.known)) {
+            if (info.setupDone) continue;
+            if (this.wifi?.mode?.(udid) === 'wifi') {
+                info.setupDone = true;
+                changed = true;
+                const device = this.devices.get(udid);
+                if (device) device.setupDone = true;
+            }
+        }
+        if (changed) writeJson(KNOWN_FILE, this.known);
     }
 
     /** Ports for this phone's private userspace tunnel (isolated from every other phone). */
@@ -240,7 +287,7 @@ class DeviceManager {
         device.procs = device.procs.filter((p) => p !== child);
     }
 
-    /** iOS 27 Wi-Fi: go-ios tunnel fails; DeviceKit must start inside pymobiledevice3. */
+    /** iOS 27 Wi-Fi: go-ios tunnel fails; WDA must start inside pymobiledevice3 RSD. */
     needsPmd3Runner(device) {
         return device.connection === 'wifi' && device.iosMajor >= 27;
     }
@@ -265,7 +312,7 @@ class DeviceManager {
 
     // iOS 17+ needs a userspace RSD tunnel. One process per phone so a drop only
     // reconnects that phone. Older iOS skips this. iOS 27 Wi-Fi skips go-ios and
-    // starts DeviceKit inside pymobiledevice3 instead (see connectDeviceKitPmd3).
+    // starts WDA inside pymobiledevice3 instead (see connectWdaPmd3).
     async ensurePhoneTunnel(device) {
         if (device.iosMajor < 17) {
             device.tunnelInfoPort = null;
@@ -281,7 +328,7 @@ class DeviceManager {
         if (this.needsPmd3Runner(device)) {
             this.killPhoneTunnel(device);
             device.pmd3Runner = true;
-            device.log('iOS 27 Wi-Fi: DeviceKit will start through pymobiledevice3');
+            device.log('iOS 27 Wi-Fi: WDA will start through pymobiledevice3 (RemotePairing)');
             return;
         }
 
@@ -299,10 +346,10 @@ class DeviceManager {
                 if (i + 1 < attempts) await sleep(2000 + i * 1000);
             }
         }
-        // Wi-Fi fallback: same pmd3 path used for iOS 27.
+        // Wi-Fi fallback: same pmd3 WDA path used for iOS 27.
         if (device.connection === 'wifi') {
             device.pmd3Runner = true;
-            device.log('go-ios tunnel failed on Wi-Fi; falling back to pymobiledevice3 DeviceKit runner');
+            device.log('go-ios tunnel failed on Wi-Fi; falling back to pymobiledevice3 WDA runner');
             return;
         }
         throw lastErr || new Error(`Private tunnel for ${device.name} did not become ready`);
@@ -412,8 +459,10 @@ class DeviceManager {
             if (!device) {
                 device = new Device(udid, this.nextSlot++);
                 this.devices.set(udid, device);
-                const pref = this.known[udid]?.enginePreference;
+                const known = this.known[udid];
+                const pref = known?.enginePreference;
                 device.enginePreference = pref === 'wda' ? 'wda' : 'auto';
+                device.setupDone = !!known?.setupDone || this.wifi?.mode?.(udid) === 'wifi';
                 device.log('Phone connected');
                 this.applyEntry(device, entry);
                 // iOS 17+ phones need the helper to mount the developer image; get it ready in the background.
@@ -446,8 +495,36 @@ class DeviceManager {
             }
             if (device.connection) device.lastTransport = device.connection;
             if (!this.config.autoConnect) continue;
-            // Phones waiting on you are re-checked every few seconds, so they continue by themselves.
-            const retryAction = device.status === 'action' && Date.now() - device.actionAt > ACTION_RETRY_MS;
+            // Ready but WDA died — soft reconnect without thrashing every tick.
+            if (device.status === 'ready' && device.engine === 'wda' && device.client?.status) {
+                const stale = Date.now() - (device.lastHealthAt || 0) > 10000;
+                if (stale) {
+                    device.lastHealthAt = Date.now();
+                    device.client.status().catch(() => {
+                        if (device.status !== 'ready') return;
+                        device.log('WDA stopped answering; reconnecting');
+                        this.stopProcesses(device);
+                        device.status = device.online ? 'idle' : 'offline';
+                    });
+                }
+            }
+            // False Trust / plug-in prompts after disconnect: clear and reconnect.
+            if (
+                device.status === 'action' &&
+                (device.action?.kind === 'trust' || device.action?.kind === 'plug-in') &&
+                this.alreadySetUp(device)
+            ) {
+                device.log('Clearing stale Trust / plug-in prompt — phone was already set up');
+                device.status = 'idle';
+                device.action = null;
+                device.actionAt = 0;
+            }
+            // Only soft-retry things the phone can clear by itself (not Install / Renew).
+            const softRetry =
+                device.status === 'action' &&
+                ['unlock', 'trust', 'trust-developer', 'devmode'].includes(device.action?.kind) &&
+                Date.now() - device.actionAt > ACTION_RETRY_MS;
+            const retryAction = softRetry;
             // A failed start (often just the tunnel not being up yet) is tried again a few times by itself.
             const retryError =
                 device.status === 'error' &&
@@ -491,25 +568,77 @@ class DeviceManager {
         if (this.nicknames[device.udid]) device.name = this.nicknames[device.udid];
     }
 
-    // Reading device info only works once the phone trusts this PC, so it doubles as the trust check.
-    async checkTrusted(device) {
+    // Locked phones kill every iOS 17+ developer tunnel (ConnectionTerminatedError). Fail fast.
+    async checkUnlocked(device) {
         try {
-            // pmd3 Wi-Fi path has no go-ios tunnel; usbmux lockdown may still answer.
-            const info = await goios.run(['info'], { ...this.iosOpts(device), timeout: 15000 });
-            if (!info || typeof info !== 'object') throw new Error('no info');
+            const info = await goios.run(['info'], { ...this.iosOpts(device), timeout: 8000 });
+            if (!info || typeof info !== 'object') return;
             device.name = this.nicknames[device.udid] || info.DeviceName || device.name;
-            device.model = info.ProductType || device.model;
+            device.model = info.ProductType || device.model || '';
             device.iosVersion = info.ProductVersion || device.iosVersion;
+            if (info.PasswordProtected === true || info.PasswordProtected === 'true') {
+                device.log('Phone is locked — unlock it so Market can connect');
+                throw ACTIONS.unlock(device);
+            }
         } catch (e) {
-            if (device.pmd3Runner && device.connection === 'wifi') {
-                device.log(`Skipping go-ios trust check on pmd3 Wi-Fi (${e.message})`);
+            if (e.action) throw e;
+            device.log(`Could not check lock state (${e.message})`);
+        }
+    }
+
+    // Reading device info only works once the phone trusts this PC, so it doubles as the trust check.
+    // After a successful ready, never ask again — go-ios info is flaky on reconnect (especially Wi-Fi).
+    async checkTrusted(device) {
+        if (this.alreadySetUp(device)) {
+            device.log('Trust already done for this phone; skipping check');
+            return;
+        }
+
+        let lastErr;
+        // After disconnect/reconnect the tunnel can still be settling — retry before assuming untrusted.
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                const info = await goios.run(['info'], { ...this.iosOpts(device), timeout: 10000 });
+                if (!info || typeof info !== 'object') throw new Error('no info');
+                device.name = this.nicknames[device.udid] || info.DeviceName || device.name;
+                device.model = info.ProductType || device.model;
+                device.iosVersion = info.ProductVersion || device.iosVersion;
+                if (info.PasswordProtected === true || info.PasswordProtected === 'true') {
+                    throw ACTIONS.unlock(device);
+                }
+                return;
+            } catch (e) {
+                if (e.action) throw e;
+                lastErr = e;
+                await sleep(400 * (attempt + 1));
+            }
+        }
+
+        const msg = lastErr?.message || 'unknown';
+        const known = !!this.known[device.udid] || !!device.iosVersion;
+        const flaky = /forcibly closed|aborted|terminated abruptly|\bEOF\b|reset by peer|timed out|timeout|tunnel|connection/i.test(
+            msg,
+        );
+
+        // Wi-Fi: you cannot tap Trust here. iOS 27 often fails go-ios info over Wi-Fi even when
+        // already paired — if we've used this phone before, keep going.
+        if (device.connection === 'wifi') {
+            if (device.pmd3Runner || known) {
+                device.log(`Skipping trust check on Wi-Fi (${msg})`);
                 return;
             }
-            device.log(`Not trusted yet (${e.message}); asking the phone to trust this PC`);
-            if (device.connection === 'wifi') throw ACTIONS.trustWifi(device); // trusting only works over USB
-            await goios.run(['pair'], { ...this.iosOpts(device), timeout: 20000 }).catch(() => {});
-            throw ACTIONS.trust(device);
+            throw ACTIONS.trustWifi(device);
         }
+
+        // USB: a known phone with a flaky tunnel is not "untrusted" — don't block on Trust again.
+        if (known && flaky) {
+            device.log(`Trust check flaky after reconnect (${msg}); continuing`);
+            return;
+        }
+
+        device.log(`Not trusted yet (${msg}); asking the phone to trust this PC`);
+        await goios.run(['pair'], { ...this.iosOpts(device), timeout: 20000 }).catch(() => {});
+        throw ACTIONS.trust(device);
     }
 
     rename(udid, name) {
@@ -690,6 +819,7 @@ class DeviceManager {
         if (wifiIp) this.wifi?.learnIp(device.udid, wifiIp);
         if (device.connection === 'wifi' && wifiIp) this.keepWifiAwake(device, wifiIp);
         device.status = 'ready';
+        this.markSetupDone(device);
         device.step = '';
         device.error = '';
         device.action = null;
@@ -698,7 +828,6 @@ class DeviceManager {
             logLine ||
                 `Ready via DeviceKit (screen ${client.size.width}x${client.size.height} pt)`,
         );
-        this.remember(device);
     }
 
     /** Wait until DeviceKit /health or /rpc answers; both are probed together each tick. */
@@ -787,16 +916,16 @@ class DeviceManager {
         const udid = device.udid;
 
         // Already viewing and controlling? Do not tear down and re-walk every step.
+        if (!opts.force && (await this.tryReuseWda(device))) return;
         if (!opts.force && (await this.tryReuseDeviceKit(device))) return;
 
         const tunnelAlive =
             device.tunnelProc &&
             device.tunnelProc.exitCode === null &&
             (device.tunnelInfoPort || device.pmd3Runner);
-        // pmd3 runner is DeviceKit itself — soft retries must restart it after Install.
+        // pmd3 runner is the WDA process itself — soft retries must restart it.
         const keepTunnel = opts.keepTunnel && tunnelAlive && !device.pmd3Runner;
         if (keepTunnel) {
-            // Drop DeviceKit / forwards only; leave this phone's private tunnel running.
             for (const p of device.procs) {
                 if (p === device.tunnelProc) continue;
                 try {
@@ -818,156 +947,26 @@ class DeviceManager {
         device.action = null;
 
         try {
-            if (!keepTunnel) await this.ensurePhoneTunnel(device);
+            if (!keepTunnel && !this.usesDirectControl(device)) await this.ensurePhoneTunnel(device);
+            device.step = 'Checking the phone is unlocked';
+            await this.checkUnlocked(device);
             device.step = 'Checking the phone trusts this PC';
             await this.checkTrusted(device);
+
+            if (this.usesDirectControl(device)) {
+                await this.connectDirect(device);
+                return;
+            }
 
             if (this.usesDeviceKit(device)) {
                 await this.connectDeviceKit(device);
                 return;
             }
 
-            device.log('Using legacy WebDriverAgent');
-            device.step = 'Checking the control app';
-            const bundleId = await this.findWdaBundle(device);
-            device.wdaBundleId = bundleId;
-            if (!bundleId) throw ACTIONS.install(device);
-
-            if (device.iosMajor >= 16) {
-                device.step = 'Checking Developer Mode';
-                await this.checkDeveloperMode(device);
-            }
-
-            device.step = 'Mounting developer image';
-            await this.mountDeveloperImage(device);
-
-            device.step = 'Starting the control app';
-            let wdaExited = false;
-            let wdaOutput = '';
-            const runwda = goios.spawnLong(
-                [
-                    'runwda',
-                    `--bundleid=${bundleId}`,
-                    `--testrunnerbundleid=${bundleId}`,
-                    `--xctestconfig=${wdaCfg.xctestConfig}`,
-                ],
-                {
-                    ...this.iosOpts(device),
-                    onLog: (l) => {
-                        wdaOutput += `${l}\n`;
-                        device.log(`[wda] ${l}`);
-                    },
-                },
-            );
-            device.procs.push(runwda);
-            runwda.on('exit', (code) => {
-                wdaExited = true;
-                device.log(`Control app stopped (exit ${code})`);
-                if (device.status === 'ready') {
-                    device.status = 'idle'; // auto-connect brings it back
-                    device.log('Restarting the control app');
-                }
-            });
-
-            const wdaPort = localPorts.wdaBase + device.slot;
-            const mjpegPort = localPorts.mjpegBase + device.slot;
-            for (const [local, remote] of [
-                [wdaPort, wdaCfg.devicePort],
-                [mjpegPort, wdaCfg.mjpegDevicePort],
-            ]) {
-                device.procs.push(
-                    goios.spawnLong(['forward', String(local), String(remote)], {
-                        ...this.iosOpts(device),
-                        onLog: (l) => device.log(`[forward ${local}] ${l}`),
-                    }),
-                );
-            }
-
-            device.step = 'Waiting for the control app';
-            const client = new WDAClient(`http://127.0.0.1:${wdaPort}`);
-            const deadline = Date.now() + 90000;
-            for (;;) {
-                // iOS won't start an app from a developer you haven't trusted yet; go-ios only sees "no pid".
-                if (/explicitly trusted|not trusted|untrusted|could not get pid|failed to launch app/i.test(wdaOutput))
-                    throw ACTIONS.trustDeveloper(device);
-                if (
-                    /invalid code signature|profile has expired|no longer valid|0xe8008018|0xe800801c/i.test(wdaOutput)
-                ) {
-                    controlApp.expired(udid);
-                    throw ACTIONS.resign(device);
-                }
-                if (/locked|passcode/i.test(wdaOutput) && wdaExited) throw ACTIONS.unlock(device);
-                if (wdaExited)
-                    throw new Error('The control app quit while starting. Open the phone for its connection log.');
-                try {
-                    await client.status();
-                    break;
-                } catch {}
-                if (Date.now() > deadline)
-                    throw new Error('The control app did not start. Keep the phone unlocked and try again.');
-                await sleep(1500);
-            }
-
-            device.step = 'Opening session';
-            for (let attempt = 1; ; attempt++) {
-                try {
-                    await client.createSession();
-                    break;
-                } catch (e) {
-                    if (wdaExited || attempt >= 3) throw e;
-                    device.log(`Opening session failed (${e.message}), retrying (${attempt}/3)`);
-                    await sleep(2000);
-                }
-            }
-            await client
-                .configureStream({
-                    framerate: wdaCfg.mjpegFramerate,
-                    scalingFactor: wdaCfg.mjpegScalingFactor,
-                    quality: wdaCfg.mjpegQuality,
-                })
-                .catch((e) => device.log(`stream settings: ${e.message}`));
-
-            controlApp.started(udid, bundleId);
-            // Remember its Wi-Fi address: Apple's service can't always find phones on Wi-Fi by itself.
-            if (this.wifi)
-                this.wifi.learnIp(
-                    udid,
-                    await client
-                        .status()
-                        .then((st) => st?.ios?.ip)
-                        .catch(() => null),
-                );
-            device.client = client;
-            device.engine = 'wda';
-            device.mjpegHost = '127.0.0.1';
-            device.mjpegPort = mjpegPort;
-            if (device.connection === 'wifi') {
-                const ip = await client
-                    .status()
-                    .then((st) => st?.ios?.ip)
-                    .catch(() => null);
-                if (ip) {
-                    this.wifi?.learnIp(udid, ip);
-                    this.keepWifiAwake(device, ip);
-                }
-            }
-            device.status = 'ready';
-            device.step = '';
-            device.errorRetries = 0;
-            device.log(`Ready via legacy control app (screen ${client.size.width}x${client.size.height} pt)`);
-            this.remember(device);
-            // First time over the cable with no choice made yet: switch Wi-Fi on, so the phone keeps
-            // working once it is unplugged and the one USB port is free for the next phone.
-            if (this.wifi && device.connection === 'usb' && !this.wifi.data[udid]) {
-                this.wifi
-                    .setMode(udid, 'wifi')
-                    .then(() => {
-                        device.mode = 'wifi';
-                        device.log('Wi-Fi switched on: you can unplug it once it shows on Wi-Fi');
-                    })
-                    .catch((e) => device.log(`Could not switch Wi-Fi on: ${e.message}`));
-            }
+            await this.connectWda(device);
         } catch (e) {
+            // killPhoneTunnel clears pmd3Runner — capture before stopProcesses.
+            const usedPmd3 = device.pmd3Runner || this.needsPmd3Runner(device);
             this.stopProcesses(device);
             device.step = '';
             if (e.action) {
@@ -978,14 +977,25 @@ class DeviceManager {
             } else {
                 device.status = 'error';
                 device.error = e.message;
-                // Some iOS versions hang up on every service connection made over Wi-Fi (the phone answers,
-                // then closes after the handshake). Retrying can't help, so say so and stop trying.
-                if (device.connection === 'wifi' && /forcibly closed|aborted|terminated abruptly|\bEOF\b|reset by peer/i.test(e.message)) {
-                    device.error = `${device.name} answers on Wi-Fi but its iOS (${device.iosVersion}) closes the connection when Market tries to control it. Plug it in with a cable to use it.`;
-                    device.errorRetries = ERROR_RETRIES;
+                const flakyWifi =
+                    device.connection === 'wifi' &&
+                    /forcibly closed|aborted|terminated abruptly|\bEOF\b|reset by peer|runner exited|quit while starting/i.test(
+                        e.message,
+                    );
+                if (flakyWifi) {
+                    if (usedPmd3 || device.iosMajor >= 27) {
+                        // Real retries via ERROR_RETRY — do not reset forever (that was "Setting up" forever).
+                        device.error = `Wi‑Fi tunnel dropped while starting. Keep ${device.name} unlocked on the same Wi‑Fi — retrying.`;
+                        device.log(`Connect failed (will retry): ${e.message}`);
+                    } else {
+                        device.error = `${device.name} answers on Wi-Fi but its iOS (${device.iosVersion}) closes the connection when Market tries to control it. Plug it in with a cable to use it.`;
+                        device.errorRetries = ERROR_RETRIES;
+                        device.log(`Connect failed: ${e.message}`);
+                    }
+                } else {
+                    device.log(`Connect failed: ${e.message}`);
                 }
                 device.errorAt = Date.now();
-                device.log(`Connect failed: ${e.message}`);
             }
             throw e;
         }
@@ -1008,12 +1018,443 @@ class DeviceManager {
         });
     }
 
-    // Default: WDA — MJPEG on its own port so PC taps do not freeze the live view.
-    // DeviceKit only when forced (preference or controlEngine).
+    // CoreDevice Direct — debug only (screen stream flags recording to brand apps).
+    usesDirectControl(device) {
+        if (!this.config.debugCoreDevice) return false;
+        if (device.enginePreference === 'wda' || device.enginePreference === 'devicekit') return false;
+        const min = this.config.directControlMinIos ?? 27;
+        return device.iosMajor >= min;
+    }
+
+    // Default: WDA for every iOS version. DeviceKit only when the user forces it.
     usesDeviceKit(device) {
-        if (device.enginePreference === 'wda') return false;
+        if (this.usesDirectControl(device)) return false;
         if (device.enginePreference === 'devicekit') return true;
+        if (device.enginePreference === 'wda') return false;
         return (this.config.controlEngine || 'wda') === 'devicekit';
+    }
+
+    async tryReuseWda(device) {
+        if (this.usesDeviceKit(device) || this.usesDirectControl(device)) return false;
+        if (device.engine !== 'wda' || !device.mjpegPort) return false;
+        const wdaPort = (this.config.localPorts?.wdaBase || 8100) + device.slot;
+        const client = device.client instanceof WDAClient ? device.client : new WDAClient(`http://127.0.0.1:${wdaPort}`);
+        try {
+            await client.status();
+            if (!client.sessionId) await client.createSession();
+            device.client = client;
+            device.engine = 'wda';
+            device.status = 'ready';
+            device.step = '';
+            device.error = '';
+            device.action = null;
+            device.errorRetries = 0;
+            device.log('Already live on WDA — skipped setup steps');
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    async connectWda(device) {
+        if (device.pmd3Runner) {
+            await this.connectWdaPmd3(device);
+            return;
+        }
+        await this.connectWdaGoios(device);
+    }
+
+    // The ports WDA listens on inside the phone. Its defaults (8100, 9100) are what an app on
+    // the phone checks to spot it, so each start picks two random high ones instead.
+    wdaDevicePorts() {
+        const wdaCfg = this.config.wda;
+        if (wdaCfg.randomDevicePorts === false) return { wda: wdaCfg.devicePort, mjpeg: wdaCfg.mjpegDevicePort };
+        const wda = 20000 + Math.floor(Math.random() * 40000);
+        // WDA walks upward from its port when it is taken, so keep the stream well clear of it.
+        const mjpeg = 20000 + ((wda - 20000 + 1000 + Math.floor(Math.random() * 38000)) % 40000);
+        return { wda, mjpeg };
+    }
+
+    async connectWdaGoios(device) {
+        const { wda: wdaCfg, localPorts } = this.config;
+        const udid = device.udid;
+        const devicePorts = this.wdaDevicePorts();
+
+        device.log('Using WebDriverAgent');
+        device.step = 'Checking the control app';
+        let bundleId = device.wdaBundleId || null;
+        if (!bundleId) {
+            bundleId = await this.findWdaBundle(device).catch((e) => {
+                device.log(`Could not list WDA apps (${e.message})`);
+                return null;
+            });
+        }
+        device.wdaBundleId = bundleId;
+        if (!bundleId) throw ACTIONS.install(device);
+
+        if (device.iosMajor >= 16) {
+            device.step = 'Checking Developer Mode';
+            await this.checkDeveloperMode(device);
+        }
+
+        device.step = 'Mounting developer image';
+        await this.mountDeveloperImage(device);
+
+        device.step = 'Starting the control app';
+        let wdaExited = false;
+        let wdaOutput = '';
+        const runwda = goios.spawnLong(
+            [
+                'runwda',
+                `--bundleid=${bundleId}`,
+                `--testrunnerbundleid=${bundleId}`,
+                `--xctestconfig=${wdaCfg.xctestConfig}`,
+                `--env=USE_PORT=${devicePorts.wda}`,
+                `--env=MJPEG_SERVER_PORT=${devicePorts.mjpeg}`,
+            ],
+            {
+                ...this.iosOpts(device),
+                onLog: (l) => {
+                    wdaOutput += `${l}\n`;
+                    device.log(`[wda] ${l}`);
+                },
+            },
+        );
+        device.procs.push(runwda);
+        runwda.on('exit', (code) => {
+            wdaExited = true;
+            device.log(`Control app stopped (exit ${code})`);
+            if (device.status === 'ready') {
+                device.status = 'idle';
+                device.log('Restarting the control app');
+            }
+        });
+
+        const wdaPort = localPorts.wdaBase + device.slot;
+        const mjpegPort = localPorts.mjpegBase + device.slot;
+        for (const [local, remote] of [
+            [wdaPort, devicePorts.wda],
+            [mjpegPort, devicePorts.mjpeg],
+        ]) {
+            device.procs.push(
+                goios.spawnLong(['forward', String(local), String(remote)], {
+                    ...this.iosOpts(device),
+                    onLog: (l) => device.log(`[forward ${local}] ${l}`),
+                }),
+            );
+        }
+
+        await this.waitForWdaHttp(device, wdaPort, {
+            tick: () => {
+                if (/explicitly trusted|not trusted|untrusted|could not get pid|failed to launch app/i.test(wdaOutput))
+                    throw ACTIONS.trustDeveloper(device);
+                if (/invalid code signature|profile has expired|no longer valid|0xe8008018|0xe800801c/i.test(wdaOutput)) {
+                    controlApp.expired(udid);
+                    throw ACTIONS.resign(device);
+                }
+                if (/Did not find test app|Is it installed/i.test(wdaOutput)) {
+                    device.wdaBundleId = null;
+                    throw ACTIONS.install(device);
+                }
+                if (/locked|passcode/i.test(wdaOutput) && wdaExited) throw ACTIONS.unlock(device);
+                if (wdaExited)
+                    throw new Error('The control app quit while starting. Keep the phone unlocked and try again.');
+            },
+        });
+
+        await this.finishWdaReady(device, wdaPort, mjpegPort, bundleId);
+    }
+
+    // iOS 27 Wi-Fi (and go-ios Wi-Fi failures): same WDA ports via pymobiledevice3 RemotePairing.
+    async connectWdaPmd3(device) {
+        const { wda: wdaCfg, localPorts, usbmuxProxyPort } = this.config;
+        const udid = device.udid;
+        const wifi = device.connection === 'wifi';
+        const usbmux = process.env.USBMUXD_SOCKET_ADDRESS || `127.0.0.1:${usbmuxProxyPort}`;
+        const wdaPort = localPorts.wdaBase + device.slot;
+        const mjpegPort = localPorts.mjpegBase + device.slot;
+        const phoneIp = this.wifi?.proxy?.wifiIpOf?.(udid) || this.wifi?.data?.[udid]?.ip || null;
+
+        device.step = 'Getting the iOS helper ready';
+        const [python, bundleId] = await Promise.all([
+            setup.ensureHelper((step) => {
+                device.step = step;
+                device.log(step);
+            }),
+            (async () => {
+                if (device.wdaBundleId) return device.wdaBundleId;
+                const found = await this.findWdaBundle(device).catch(() => null);
+                // Only use configured id when apps cannot be listed (Wi-Fi flaky) — not when list is empty.
+                if (found) return found;
+                device.log('No WDA app on the phone');
+                return null;
+            })(),
+        ]);
+        device.wdaBundleId = bundleId;
+        if (!bundleId) throw ACTIONS.install(device);
+
+        if (!wifi) {
+            if (device.iosMajor >= 16) {
+                device.step = 'Checking Developer Mode';
+                await this.checkDeveloperMode(device);
+            }
+            device.step = 'Mounting developer image';
+            await this.mountDeveloperImage(device);
+            device.step = 'Setting up Wi-Fi pairing';
+            await pairWdaWifi(python, udid, usbmux).catch((e) => device.log(`Wi-Fi pair: ${e.message}`));
+        }
+
+        device.pmd3Runner = true;
+        device.step = wifi ? 'Starting WDA over Wi-Fi' : 'Starting WDA';
+        device.log('Using WebDriverAgent via pymobiledevice3');
+        let output = '';
+        const child = startWdaRunner(python, {
+            udid,
+            wdaPort,
+            mjpegPort,
+            bundleId,
+            usbmux,
+            wifi,
+            phoneIp,
+            devicePorts: this.wdaDevicePorts(),
+            onLog: (l) => {
+                output = `${output}${l}\n`.slice(-4000);
+                device.log(`[wda-pmd3] ${l}`);
+            },
+        });
+        device.tunnelProc = child;
+        device.procs.push(child);
+        child.on('exit', (code) => {
+            if (device.tunnelProc === child) device.tunnelProc = null;
+            device.log(`WDA runner stopped (exit ${code})`);
+            if (device.status === 'ready') {
+                device.status = 'idle';
+                device.log('Restarting WDA');
+            }
+        });
+
+        try {
+            await Promise.race([
+                child.ready,
+                sleep(90000).then(() => {
+                    throw new Error('WDA runner timed out');
+                }),
+            ]);
+        } catch (e) {
+            try {
+                child.kill();
+            } catch {}
+            if (wifi && /locked|passcode/i.test(`${e.message}\n${output}`)) throw ACTIONS.unlock(device);
+            throw e;
+        }
+
+        await this.waitForWdaHttp(device, wdaPort, {
+            tick: () => {
+                if (child.exitCode === null) return;
+                if (/locked|passcode/i.test(output)) throw ACTIONS.unlock(device);
+                if (/explicitly trusted|not trusted|untrusted/i.test(output)) throw ACTIONS.trustDeveloper(device);
+                if (/invalid code signature|profile has expired|0xe8008018/i.test(output)) {
+                    controlApp.expired(udid);
+                    throw ACTIONS.resign(device);
+                }
+                throw new Error('WDA runner quit while starting. Keep the phone unlocked and try again.');
+            },
+        });
+
+        await this.finishWdaReady(
+            device,
+            wdaPort,
+            mjpegPort,
+            bundleId,
+            wifi ? 'Ready via WDA over Wi-Fi (pmd3)' : 'Ready via WDA (pmd3)',
+        );
+    }
+
+    async waitForWdaHttp(device, wdaPort, { deadlineMs = 90000, tick = () => {} } = {}) {
+        const client = new WDAClient(`http://127.0.0.1:${wdaPort}`);
+        const deadline = Date.now() + deadlineMs;
+        device.step = 'Waiting for the control app';
+        for (;;) {
+            tick();
+            try {
+                await client.status();
+                return client;
+            } catch {}
+            if (Date.now() > deadline)
+                throw new Error('The control app did not start. Keep the phone unlocked and try again.');
+            await sleep(800);
+        }
+    }
+
+    async finishWdaReady(device, wdaPort, mjpegPort, bundleId, logLine) {
+        const { wda: wdaCfg } = this.config;
+        const udid = device.udid;
+        const client = new WDAClient(`http://127.0.0.1:${wdaPort}`);
+
+        device.step = 'Opening session';
+        for (let attempt = 1; ; attempt++) {
+            try {
+                await client.createSession();
+                break;
+            } catch (e) {
+                if (attempt >= 3) throw e;
+                device.log(`Opening session failed (${e.message}), retrying (${attempt}/3)`);
+                await sleep(1500);
+            }
+        }
+
+        // Same MJPEG profile on every iOS version (parity).
+        await client
+            .configureStream({
+                framerate: wdaCfg.mjpegFramerate,
+                scalingFactor: wdaCfg.mjpegScalingFactor,
+                quality: wdaCfg.mjpegQuality,
+            })
+            .catch((e) => device.log(`stream settings: ${e.message}`));
+
+        controlApp.started(udid, bundleId);
+        if (this.wifi) {
+            const ip = await client
+                .status()
+                .then((st) => st?.ios?.ip)
+                .catch(() => null);
+            if (ip) this.wifi.learnIp(udid, ip);
+        }
+
+        device.client = client;
+        device.engine = 'wda';
+        device.mjpegHost = '127.0.0.1';
+        device.mjpegPort = mjpegPort;
+        device.mjpegPath = '/';
+
+        if (device.connection === 'wifi') {
+            const ip =
+                this.wifi?.proxy?.wifiIpOf?.(udid) ||
+                this.wifi?.data?.[udid]?.ip ||
+                (await client
+                    .status()
+                    .then((st) => st?.ios?.ip)
+                    .catch(() => null));
+            if (ip) {
+                this.wifi?.learnIp(udid, ip);
+                this.keepWifiAwake(device, ip);
+            }
+        }
+
+        device.status = 'ready';
+        device.step = '';
+        device.error = '';
+        device.action = null;
+        device.errorRetries = 0;
+        const size = client.size || { width: '?', height: '?' };
+        device.log(
+            logLine
+                ? `${logLine} (screen ${size.width}x${size.height} pt)`
+                : `Ready via WDA (screen ${size.width}x${size.height} pt)`,
+        );
+        this.markSetupDone(device);
+
+        if (this.wifi && device.connection === 'usb' && !this.wifi.data[udid]) {
+            this.wifi
+                .setMode(udid, 'wifi')
+                .then(() => {
+                    device.mode = 'wifi';
+                    device.log('Wi-Fi switched on: you can unplug it once it shows on Wi-Fi');
+                })
+                .catch((e) => device.log(`Could not switch Wi-Fi on: ${e.message}`));
+        }
+    }
+
+    async connectDirect(device) {
+        const { localPorts, appleUsbmuxPort, usbmuxProxyPort } = this.config;
+        const wifi = device.connection === 'wifi';
+        // USB: talk to Apple usbmux. Wi-Fi: Market proxy (manual IP entries) + RemotePairing by IP.
+        const usbmux = wifi
+            ? process.env.USBMUXD_SOCKET_ADDRESS || `127.0.0.1:${usbmuxProxyPort}`
+            : `127.0.0.1:${appleUsbmuxPort || 27015}`;
+
+        if (!wifi) {
+            device.step = 'Checking Developer Mode';
+            await this.checkDeveloperMode(device);
+            device.step = 'Mounting developer image';
+            await this.mountDeveloperImage(device);
+        }
+
+        device.step = 'Getting the iOS helper ready';
+        const python = await setup.ensureHelper((step) => {
+            device.step = step;
+            device.log(step);
+        });
+
+        if (!wifi) {
+            device.step = 'Setting up Wi-Fi';
+            await pairDirectWifi(python, device.udid, usbmux).catch((e) =>
+                device.log(`Could not set up Wi-Fi: ${e.message}`),
+            );
+        }
+
+        const phoneIp = this.wifi?.proxy?.wifiIpOf?.(device.udid) || this.wifi?.data?.[device.udid]?.ip || null;
+
+        device.step = wifi ? 'Connecting over Wi-Fi' : 'Connecting to the phone';
+        const streamPort = (localPorts.directBase || 9300) + device.slot * 2;
+        const controlPort = streamPort + 1;
+        let exited = false;
+        let output = '';
+        const child = startDirect(python, {
+            udid: device.udid,
+            streamPort,
+            controlPort,
+            usbmux,
+            wifi,
+            phoneIp,
+            onLog: (l) => {
+                output = `${output}${l}\n`.slice(-4000);
+                device.log(`[direct] ${l}`);
+            },
+        });
+        device.tunnelProc = child;
+        device.procs.push(child);
+        child.on('exit', (code) => {
+            exited = true;
+            if (device.tunnelProc === child) device.tunnelProc = null;
+            device.log(`Phone connection stopped (exit ${code})`);
+            if (device.status === 'ready') device.status = 'idle';
+        });
+
+        const client = new DirectClient(streamPort, controlPort);
+        const deadline = Date.now() + 90000;
+        for (;;) {
+            if (exited) {
+                if (/locked|passcode|PasswordProtected/i.test(output)) throw ACTIONS.unlock(device);
+                if (/camera or microphone/i.test(output))
+                    throw new Error('The camera or microphone is in use on the phone. Close that app and try again.');
+                if (wifi && /advertising|bonjour|network|RemotePairing|terminated abruptly/i.test(output))
+                    throw ACTIONS.unlock(device); // locked phones look like Wi-Fi tunnel death
+                if (wifi)
+                    throw new Error(
+                        `${device.name} couldn't connect over Wi-Fi. Unlock it on the same Wi-Fi, or plug in once.`,
+                    );
+                throw new Error(`The phone connection stopped. ${output.trim().split('\n').pop() || ''}`.trim());
+            }
+            if (!client.size) client.size = await client.status().catch(() => null);
+            if (client.size && (await client.streaming())) break;
+            if (Date.now() > deadline) throw ACTIONS.unlock(device);
+            await sleep(800);
+        }
+
+        if (wifi && phoneIp) this.keepWifiAwake(device, phoneIp);
+        device.client = client;
+        device.engine = 'direct';
+        device.mjpegHost = null;
+        device.mjpegPort = null;
+        device.mjpegPath = null;
+        device.status = 'ready';
+        device.step = '';
+        device.error = '';
+        device.action = null;
+        device.errorRetries = 0;
+        device.log(`Ready via Direct (no control app, screen ${client.size.width}x${client.size.height} pt)`);
+        this.markSetupDone(device);
     }
 
     async connectDeviceKit(device) {
@@ -1150,6 +1591,35 @@ class DeviceManager {
             await pairForWifi(python, udid, usbmux).catch((e) => device.log(`Could not set up Wi-Fi: ${e.message}`));
         }
 
+        // Wi-Fi RSD handshakes often abort once after disconnect — retry in-process.
+        const attempts = wifi ? 4 : 2;
+        let lastErr = null;
+        for (let i = 0; i < attempts; i++) {
+            if (i > 0) {
+                device.log(`DeviceKit Wi-Fi start retry ${i + 1}/${attempts}`);
+                await sleep(2000 + i * 1500);
+            }
+            try {
+                await this.startDeviceKitPmd3Once(device, { python, bundleId, localPort, usbmux, wifi });
+                return;
+            } catch (e) {
+                lastErr = e;
+                if (e.action) throw e;
+                const flaky = /terminated abruptly|\bEOF\b|aborted|reset by peer|runner exited|quit while starting|timed out/i.test(
+                    `${e.message}`,
+                );
+                if (!flaky || i + 1 >= attempts) throw e;
+                device.log(`DeviceKit start failed (${e.message}); trying again`);
+                this.killPhoneTunnel(device);
+                device.pmd3Runner = true; // keep path selected across retries
+            }
+        }
+        throw lastErr || new Error('DeviceKit runner failed to start');
+    }
+
+    async startDeviceKitPmd3Once(device, { python, bundleId, localPort, usbmux, wifi }) {
+        const udid = device.udid;
+        device.pmd3Runner = true;
         device.step = wifi ? 'Starting DeviceKit over Wi-Fi' : 'Starting DeviceKit';
         let output = '';
         const child = startDeviceKitRunner(python, {
@@ -1177,13 +1647,21 @@ class DeviceManager {
         try {
             await Promise.race([
                 child.ready,
-                sleep(120000).then(() => {
+                sleep(90000).then(() => {
                     throw new Error('DeviceKit runner timed out');
                 }),
             ]);
         } catch (e) {
-            if (wifi && /advertising|pairing|remote|EOF|abrupt/i.test(`${e.message}\n${output}`))
+            try {
+                child.kill();
+            } catch {}
+            if (
+                wifi &&
+                !this.alreadySetUp(device) &&
+                /advertising|pairing|remote|EOF|abrupt/i.test(`${e.message}\n${output}`)
+            ) {
                 throw ACTIONS.plugInImage(device);
+            }
             throw e;
         }
 
@@ -1199,8 +1677,8 @@ class DeviceManager {
                     device.cachedBundleId = null;
                     throw ACTIONS.resign(device);
                 }
-                if (wifi) throw ACTIONS.plugInImage(device);
-                throw new Error('DeviceKit runner quit while starting');
+                if (wifi && !this.alreadySetUp(device)) throw ACTIONS.plugInImage(device);
+                throw new Error('DeviceKit runner quit while starting. Keep the phone unlocked and try again.');
             },
         });
 

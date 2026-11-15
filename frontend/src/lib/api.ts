@@ -22,7 +22,7 @@ export interface Device {
     action: { kind: string; title: string; text: string } | null;
     error: string;
     mjpegPort?: number;
-    engine?: 'devicekit' | 'wda' | null;
+    engine?: 'devicekit' | 'wda' | 'direct' | null;
     enginePreference: 'auto' | 'devicekit' | 'wda';
     legacy?: boolean;
     connection: 'usb' | 'wifi' | null; // how it's connected right now

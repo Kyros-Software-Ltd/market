@@ -7,10 +7,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { DATA_DIR } = require('./paths');
+const { humanPath } = require('./touch-path');
 
 const SCRIPT = path.join(__dirname, 'py', 'direct.py');
 const HID_MAX = 65535; // touch coordinates run 0..65535 across the screen
-const MOVE_STEP_MS = 16;
 
 const SAFARI_ADDRESS_BAR = [0xe3, 0x0f]; // HID key codes: Left Cmd + L
 
@@ -64,12 +64,11 @@ class DirectClient {
         return request(`${this.stream}/touch`, { type, ...this.point(x, y) });
     }
 
-    async move(x1, y1, x2, y2, durationMs) {
-        const steps = Math.max(1, Math.round(durationMs / MOVE_STEP_MS));
-        for (let i = 1; i <= steps; i++) {
-            const t = i / steps;
-            await this.sendTouch('contact', x1 + (x2 - x1) * t, y1 + (y2 - y1) * t);
-            await sleep(MOVE_STEP_MS);
+    // A finger-like path (see touch-path.js), one contact per screen frame.
+    async move(x1, y1, x2, y2, durationMs, opts) {
+        for (const p of humanPath(x1, y1, x2, y2, durationMs, opts)) {
+            await this.sendTouch('contact', p.x, p.y);
+            await sleep(p.dt);
         }
     }
 
@@ -86,7 +85,7 @@ class DirectClient {
     async drag(x1, y1, x2, y2, holdMs = 600, durationMs = 400) {
         await this.sendTouch('contact', x1, y1);
         await sleep(holdMs);
-        await this.move(x1, y1, x2, y2, durationMs);
+        await this.move(x1, y1, x2, y2, durationMs, { flick: false });
         await this.sendTouch('release', x2, y2);
     }
 
@@ -182,13 +181,16 @@ function pairForWifi(python, udid, usbmux) {
 }
 
 /** Starts py/direct.py for a phone. The caller stops it with kill(). */
-function startDirect(python, { udid, streamPort, controlPort, usbmux, wifi, onLog }) {
+function startDirect(python, { udid, streamPort, controlPort, usbmux, wifi, phoneIp, onLog }) {
     const args = ['-u', SCRIPT, udid, String(streamPort), String(controlPort)];
     if (wifi) args.push('wifi');
+    const env = { ...process.env, PYTHONIOENCODING: 'utf-8', USBMUXD_SOCKET_ADDRESS: usbmux };
+    // Windows Bonjour often misses RemotePairing — direct.py falls back to this IP:49152.
+    if (phoneIp) env.MARKET_PHONE_IP = phoneIp;
     const child = spawn(python, args, {
         cwd: DATA_DIR,
         windowsHide: true,
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8', USBMUXD_SOCKET_ADDRESS: usbmux },
+        env,
     });
     const forward = (buf) => {
         for (const line of buf.toString().split(/\r?\n/)) if (line.trim()) onLog(line);

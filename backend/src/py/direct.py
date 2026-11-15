@@ -154,11 +154,30 @@ async def pair(udid):
 
 
 async def wifi_provider(serial, autopair, remotepairing_fallback=True):
-    """Tunnels over the network: iOS 27 hangs up on the usual route unless it's on the cable."""
-    services = await tunnel_service.get_remote_pairing_tunnel_services(udid=serial)
-    if not services:
-        raise ConnectionError("The phone isn't advertising on this network")
-    return services[0], None
+    """Wi-Fi RSD: Bonjour first; on Windows Bonjour often misses the phone so fall back to IP:49152."""
+    import os
+
+    from pymobiledevice3.remote.tunnel_service import create_core_device_tunnel_service_using_remotepairing
+
+    try:
+        services = await tunnel_service.get_remote_pairing_tunnel_services(udid=serial)
+        if services:
+            return services[0], None
+    except Exception as e:
+        print(f"bonjour remotepairing failed: {e}", flush=True)
+
+    ip = (os.environ.get("MARKET_PHONE_IP") or "").strip()
+    if not ip:
+        raise ConnectionError(
+            "The phone isn't advertising on this network (Bonjour empty). "
+            "Unlock it on the same Wi-Fi, or plug in once."
+        )
+    port = int(os.environ.get("MARKET_PHONE_PAIR_PORT") or "49152")
+    print(f"remotepairing via known IP {ip}:{port}", flush=True)
+    service = await create_core_device_tunnel_service_using_remotepairing(
+        serial, ip, port, autopair=False
+    )
+    return service, None
 
 
 async def main(udid, stream_port, control_port, transport="usb"):

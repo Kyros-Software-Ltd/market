@@ -1,5 +1,6 @@
 // Minimal WebDriverAgent HTTP client. WDA runs on the iPhone and exposes a
 // W3C WebDriver API (port 8100) plus an MJPEG screen stream (port 9100).
+const { humanPath, tapHoldMs, rand } = require('./touch-path');
 
 // Applied to every session before anything else touches the phone. Before most
 // commands WDA asks iOS which app is in front and reads its UI tree. Apps that keep
@@ -128,9 +129,19 @@ class WDAClient {
         return this.touch([
             { type: 'pointerMove', duration: 0, x: Math.round(x), y: Math.round(y) },
             { type: 'pointerDown', button: 0 },
-            { type: 'pause', duration: 60 },
+            { type: 'pause', duration: tapHoldMs() },
             { type: 'pointerUp', button: 0 },
         ]);
+    }
+
+    // One pointerMove per screen frame along a finger-like path (see touch-path.js).
+    moves(x1, y1, x2, y2, durationMs, opts) {
+        return humanPath(x1, y1, x2, y2, durationMs, opts).map((p) => ({
+            type: 'pointerMove',
+            duration: p.dt,
+            x: Math.round(p.x),
+            y: Math.round(p.y),
+        }));
     }
 
     longPress(x, y, ms = 800) {
@@ -148,8 +159,8 @@ class WDAClient {
             { type: 'pointerMove', duration: 0, x: Math.round(x1), y: Math.round(y1) },
             { type: 'pointerDown', button: 0 },
             { type: 'pause', duration: holdMs },
-            { type: 'pointerMove', duration: Math.round(durationMs), x: Math.round(x2), y: Math.round(y2) },
-            { type: 'pause', duration: 150 },
+            ...this.moves(x1, y1, x2, y2, durationMs, { flick: false }),
+            { type: 'pause', duration: Math.round(rand(120, 200)) },
             { type: 'pointerUp', button: 0 },
         ]);
     }
@@ -158,8 +169,8 @@ class WDAClient {
         return this.touch([
             { type: 'pointerMove', duration: 0, x: Math.round(x1), y: Math.round(y1) },
             { type: 'pointerDown', button: 0 },
-            { type: 'pause', duration: 30 },
-            { type: 'pointerMove', duration: Math.round(durationMs), x: Math.round(x2), y: Math.round(y2) },
+            { type: 'pause', duration: Math.round(rand(20, 45)) },
+            ...this.moves(x1, y1, x2, y2, durationMs),
             { type: 'pointerUp', button: 0 },
         ]);
     }

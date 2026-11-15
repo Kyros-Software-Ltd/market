@@ -3,14 +3,16 @@
     "affrevUrl": "https://affrev.com",
 
     "controlEngine": "wda",
+    "debugCoreDevice": true,
+    "directControlMinIos": 27,
 
     "devicekit": {
         "bundleId": "com.mobilenext.devicekit-iosUITests.xctrunner",
         "xctestConfig": "devicekit-iosUITests.xctest",
         "devicePort": 12004,
-        "mjpegFramerate": 24,
-        "mjpegQuality": 28,
-        "mjpegScale": 36
+        "mjpegFramerate": 60,
+        "mjpegQuality": 40,
+        "mjpegScale": 50
     },
 
     "wda": {
@@ -19,9 +21,9 @@
         "xctestConfig": "WebDriverAgentRunner.xctest",
         "devicePort": 8100,
         "mjpegDevicePort": 9100,
-        "mjpegFramerate": 30,
-        "mjpegScalingFactor": 60,
-        "mjpegQuality": 55
+        "mjpegFramerate": 60,
+        "mjpegScalingFactor": 55,
+        "mjpegQuality": 50
     },
 
     "localPorts": {

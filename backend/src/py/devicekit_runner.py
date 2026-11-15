@@ -133,11 +133,29 @@ async def serve_proxy(udid: str, local_port: int, device_port: int) -> asyncio.A
     return await asyncio.start_server(handle, "127.0.0.1", local_port)
 
 
+async def open_rsd(udid: str, transport: str, attempts: int = 4):
+    """Wi-Fi RSD handshakes often abort once after disconnect — retry before giving up."""
+    from pymobiledevice3.exceptions import ConnectionTerminatedError
+
+    last = None
+    for i in range(attempts):
+        try:
+            tunnel = UserspaceRsdTunnel(serial=udid)
+            return await tunnel.__aenter__()
+        except (ConnectionTerminatedError, ConnectionError, OSError, TimeoutError) as e:
+            last = e
+            print(f"rsd tunnel attempt {i + 1}/{attempts} failed: {e}", flush=True)
+            await asyncio.sleep(1.5 + i)
+    raise last or ConnectionError("RSD tunnel failed")
+
+
 async def main(udid: str, local_port: int, bundle_id: str, transport: str = "usb") -> None:
     if transport == "wifi":
         userspace_tunnel._create_no_root_tunnel_provider = wifi_provider
 
-    async with UserspaceRsdTunnel(serial=udid) as rsd:
+    attempts = 4 if transport == "wifi" else 1
+    rsd = await open_rsd(udid, transport, attempts=attempts)
+    try:
         cfg = await TestConfig.create_for(rsd, runner_bundle_id=bundle_id)
         xct = XCUITestService(rsd)
         runner = asyncio.create_task(xct.run(cfg), name="devicekit-xctrunner")
@@ -160,6 +178,9 @@ async def main(udid: str, local_port: int, bundle_id: str, transport: str = "usb
                 runner.cancel()
                 with suppress(asyncio.CancelledError):
                     await runner
+    finally:
+        with suppress(Exception):
+            await rsd.__aexit__(None, None, None)
 
 
 if __name__ == "__main__":
