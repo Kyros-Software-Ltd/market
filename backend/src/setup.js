@@ -1,7 +1,7 @@
 // One-time setup the app does by itself:
-// - installs the pymobiledevice3 helper (needed to mount the developer image on iOS 17+)
-// - downloads DeviceKit (the control app for every phone) from GitHub as an IPA that
-//   sideload.js signs and installs. Legacy WDA.ipa download remains for fallback.
+// - installs the pymobiledevice3 helper (it connects every phone, see py/phone_worker.py)
+// - downloads WebDriverAgent (the control app for every phone) from GitHub as an IPA that
+//   sideload.js signs and installs.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -10,11 +10,9 @@ const { ROOT, DATA_DIR } = require('./paths');
 
 const HELPER_DIR = path.join(DATA_DIR, 'helper');
 const WDA_IPA = path.join(DATA_DIR, 'WDA.ipa');
-const DEVICEKIT_IPA = path.join(DATA_DIR, 'DeviceKit.ipa');
 const EMBED_PYTHON_URL = 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip';
 const GET_PIP_URL = 'https://bootstrap.pypa.io/get-pip.py';
 const WDA_RELEASE_API = 'https://api.github.com/repos/appium/WebDriverAgent/releases/latest';
-const DEVICEKIT_RELEASE_API = 'https://api.github.com/repos/mobile-next/devicekit-ios/releases/latest';
 
 const run = (file, args, opts = {}) =>
     new Promise((resolve, reject) => {
@@ -53,8 +51,6 @@ const state = {
     helperError: '',
     wda: '',
     wdaError: '',
-    devicekit: '',
-    devicekitError: '',
 };
 
 function pythonCandidates() {
@@ -74,7 +70,7 @@ async function hasPymobiledevice(python) {
     }
 }
 
-// Installed exactly: CoreDevice (direct.py) and developer-image mount use this version.
+// Installed exactly: phone_worker.py is written against this version's API.
 const HELPER_VERSION = '11.50.0';
 
 async function helperIsCurrent(python) {
@@ -105,8 +101,10 @@ async function systemPython() {
 }
 
 let installing = null;
+let readyHelper = null; // checked once per run of the app: every phone connect asks for it
 /** Resolves with a python.exe that has pymobiledevice3, installing it the first time. */
 function ensureHelper(onStep = () => {}) {
+    if (readyHelper) return Promise.resolve(readyHelper);
     if (installing) return installing;
     installing = (async () => {
         const existing = await findHelper();
@@ -116,6 +114,7 @@ function ensureHelper(onStep = () => {}) {
                 await run(existing, [...PIP_INSTALL, `pymobiledevice3==${HELPER_VERSION}`]);
             }
             state.helper = 'ready';
+            readyHelper = existing;
             return existing;
         }
         state.helper = 'installing';
@@ -154,6 +153,7 @@ function ensureHelper(onStep = () => {}) {
             await run(python, [...PIP_INSTALL, `pymobiledevice3==${HELPER_VERSION}`]);
             state.helper = 'ready';
             state.helperStep = '';
+            readyHelper = python;
             return python;
         } catch (e) {
             state.helper = 'error';
@@ -251,7 +251,7 @@ async function buildWdaIpa() {
 }
 
 let buildingIpa = null;
-/** WDA.ipa, built once and reused (legacy fallback). */
+/** WDA.ipa, built once and reused. */
 function ensureWdaIpa() {
     if (wdaIpaCurrent()) return Promise.resolve(WDA_IPA);
     if (!buildingIpa)
@@ -261,81 +261,6 @@ function ensureWdaIpa() {
     return buildingIpa;
 }
 
-// ---------- DeviceKit IPA (primary control app for all phones) ----------
-// Bump when packaging changes so older cached copies are replaced.
-const DEVICEKIT_BUILD_VERSION = 1;
-const DEVICEKIT_VERSION_FILE = `${DEVICEKIT_IPA}.version`;
-
-const devicekitIpaCurrent = () =>
-    fs.existsSync(DEVICEKIT_IPA) &&
-    (() => {
-        try {
-            return Number(fs.readFileSync(DEVICEKIT_VERSION_FILE, 'utf8')) >= DEVICEKIT_BUILD_VERSION;
-        } catch {
-            return false;
-        }
-    })();
-
-function removeDsym(dir) {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (!e.isDirectory()) continue;
-        const full = path.join(dir, e.name);
-        if (e.name.endsWith('.dSYM')) fs.rmSync(full, { recursive: true, force: true });
-        else removeDsym(full);
-    }
-}
-
-/** Downloads DeviceKit runner IPA, strips dSYMs, enables file sharing, shows as "Market". */
-async function buildDeviceKitIpa() {
-    state.devicekit = 'Finding DeviceKit';
-    state.devicekitError = '';
-    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'devicekit-'));
-    try {
-        const release = await (await fetch(DEVICEKIT_RELEASE_API, { headers: { 'User-Agent': 'market-app' } })).json();
-        const asset = (release.assets || []).find((a) => a.name === 'devicekit-ios-runner.ipa');
-        if (!asset) throw new Error('Could not find devicekit-ios-runner.ipa in the latest DeviceKit release');
-        state.devicekit = `Downloading DeviceKit ${release.tag_name}`;
-        const zip = await download(asset.browser_download_url, path.join(work, 'devicekit.ipa'));
-
-        state.devicekit = 'Packaging DeviceKit.ipa';
-        const out = path.join(work, 'out');
-        const payload = path.join(out, 'Payload');
-        fs.mkdirSync(payload, { recursive: true });
-        await run(TAR, ['-xf', zip, '-C', out]);
-        if (!fs.existsSync(payload) || !fs.readdirSync(payload).some((n) => n.endsWith('.app')))
-            throw new Error('No .app inside the DeviceKit download');
-        removeDsym(payload);
-        for (const name of fs.readdirSync(payload))
-            if (name.endsWith('.app')) patchInfoPlist(path.join(payload, name, 'Info.plist'));
-        fs.rmSync(DEVICEKIT_IPA, { force: true });
-        await run(TAR, ['--format', 'zip', '-c', '-f', DEVICEKIT_IPA, 'Payload'], { cwd: out });
-        fs.writeFileSync(DEVICEKIT_VERSION_FILE, String(DEVICEKIT_BUILD_VERSION));
-        state.devicekit = '';
-        return DEVICEKIT_IPA;
-    } catch (e) {
-        state.devicekit = '';
-        state.devicekitError = e.message;
-        throw e;
-    } finally {
-        fs.rmSync(work, { recursive: true, force: true });
-    }
-}
-
-let buildingDeviceKit = null;
-function ensureDeviceKitIpa() {
-    if (devicekitIpaCurrent()) return Promise.resolve(DEVICEKIT_IPA);
-    if (!buildingDeviceKit)
-        buildingDeviceKit = buildDeviceKitIpa().finally(() => {
-            buildingDeviceKit = null;
-        });
-    return buildingDeviceKit;
-}
-
-/** The IPA sideload should install: DeviceKit by default. */
-function ensureControlIpa(engine = 'devicekit') {
-    return engine === 'wda' ? ensureWdaIpa() : ensureDeviceKitIpa();
-}
-
 // ---------- status for the Setup tab ----------
 async function status() {
     if (state.helper === 'unknown') state.helper = (await findHelper()) ? 'ready' : 'missing';
@@ -343,9 +268,6 @@ async function status() {
         wdaIpa: wdaIpaCurrent(),
         wdaBuilding: state.wda,
         wdaError: state.wdaError,
-        devicekitIpa: devicekitIpaCurrent(),
-        devicekitBuilding: state.devicekit,
-        devicekitError: state.devicekitError,
         helper: state.helper,
         helperStep: state.helperStep,
         helperError: state.helperError,
@@ -356,9 +278,6 @@ async function status() {
 module.exports = {
     ensureHelper,
     ensureWdaIpa,
-    ensureDeviceKitIpa,
-    ensureControlIpa,
     status,
     WDA_IPA,
-    DEVICEKIT_IPA,
 };

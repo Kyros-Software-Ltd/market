@@ -40,11 +40,7 @@ class Controller {
         q.timeouts = (q.timeouts || 0) + 1;
         if (q.timeouts < 5 || device.status !== 'ready') return;
         q.timeouts = 0;
-        device.log(
-            device.engine === 'devicekit'
-                ? 'Phone stopped responding to actions; restarting DeviceKit'
-                : 'Phone stopped responding to actions; restarting legacy control app',
-        );
+        device.log('Phone stopped responding to actions; restarting the control app');
         this.devices.connect(udid).catch(() => {});
     }
 
@@ -84,8 +80,8 @@ class Controller {
     async act(udid, action, args = {}, actor = 'you') {
         const fn = ACTIONS[action];
         if (!fn) throw new Error(`Unknown action "${action}"`);
-        // Manual clicks: keep at most one action queued. DeviceKit freezes MJPEG for the
-        // whole gesture — a pile of scroll/tap RPCs means seconds of black/0 fps.
+        // Manual clicks: keep at most one action queued, so a slow phone does not replay a
+        // pile of stale taps seconds later.
         const result = await this.enqueue(
             udid,
             action,

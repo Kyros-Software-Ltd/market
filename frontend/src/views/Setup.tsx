@@ -1,6 +1,6 @@
 'use client';
 import { Button, Card, Table } from '@heroui/react';
-import { Cable, Check as CheckIcon, ChevronDown, Download, FolderOpen, Smartphone, Wifi } from 'lucide-react';
+import { Cable, Check as CheckIcon, ChevronDown, Download, FolderOpen, Smartphone } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { AccountRow } from '@/components/Account';
 import { PhoneState } from '@/components/PhoneState';
@@ -12,127 +12,8 @@ import { modelName } from '@/lib/format';
 import { phoneCopy } from '@/lib/phoneCopy';
 import { useAction, useStore } from '@/lib/store';
 
-const CONNECTION_OPTIONS = [
-    { key: 'usb', label: 'Cable only' },
-    { key: 'wifi', label: 'Cable + Wi‑Fi' },
-];
-
 function connectionText(d: Device) {
-    if (d.wifiMissing) return 'Waiting on Wi‑Fi — keep it unlocked on this network.';
-    if (d.canUnplug) return 'Ready for Wi‑Fi. You can unplug now.';
-    if (d.mode !== 'wifi') return d.online ? 'On cable' : 'Not connected';
-    if (d.connection === 'wifi') return 'On Wi‑Fi';
-    if (d.connection === 'usb') return 'On cable · will use Wi‑Fi when unplugged';
-    return 'Looking for this phone on Wi‑Fi…';
-}
-
-function ConnectionPicker({ device, compact }: { device: Device; compact?: boolean }) {
-    const act = useAction();
-    const [busy, setBusy] = useState(false);
-    async function change(mode: string) {
-        if (mode === device.mode) return;
-        setBusy(true);
-        await act(
-            () => post(`/devices/${device.udid}/connection`, { mode }),
-            mode === 'wifi' ? `${device.name} can use Wi‑Fi` : `${device.name} is cable only`,
-        );
-        setBusy(false);
-    }
-    return (
-        <div style={{ width: compact ? 148 : 168 }} onClick={(e) => e.stopPropagation()}>
-            <SelectField
-                label={compact ? undefined : 'Connection'}
-                value={device.mode}
-                onChange={change}
-                options={CONNECTION_OPTIONS}
-                isDisabled={busy}
-            />
-        </div>
-    );
-}
-
-function FoundOnWifi() {
-    const act = useAction();
-    const [found, setFound] = useState<{ udid: string; name?: string; model?: string; iosVersion?: string }[]>([]);
-    useEffect(() => {
-        const load = () =>
-            get<typeof found>('/wifi/found')
-                .then(setFound)
-                .catch(() => {});
-        load();
-        const t = setInterval(load, 10000);
-        return () => clearInterval(t);
-    }, []);
-    if (!found.length) return null;
-    return (
-        <div className="col" style={{ gap: 8, marginTop: 6 }}>
-            <span className="field-label">Also on this Wi‑Fi</span>
-            {found.map((p) => (
-                <Card key={p.udid} variant="secondary" className="panel">
-                    <div className="row" style={{ padding: '12px 14px' }}>
-                        <span className="grow" style={{ fontWeight: 500 }}>
-                            {p.name || 'iPhone'}
-                            {p.model && (
-                                <span className="muted" style={{ fontWeight: 400 }}>
-                                    {' '}
-                                    · {modelName(p.model)}
-                                </span>
-                            )}
-                        </span>
-                        <Button
-                            size="sm"
-                            variant="secondary"
-                            onPress={async () => {
-                                if (
-                                    await act(
-                                        () => post(`/devices/${p.udid}/connection`, { mode: 'wifi' }),
-                                        `${p.name || 'Phone'} will connect over Wi‑Fi`,
-                                    )
-                                )
-                                    setFound((f) => f.filter((x) => x.udid !== p.udid));
-                            }}
-                        >
-                            Add over Wi‑Fi
-                        </Button>
-                    </div>
-                </Card>
-            ))}
-        </div>
-    );
-}
-
-export function WifiAdapterFix() {
-    const act = useAction();
-    const [needed, setNeeded] = useState(false);
-    useEffect(() => {
-        const load = () =>
-            get<{ needed: boolean }>('/netfix')
-                .then((r) => setNeeded(r.needed))
-                .catch(() => {});
-        load();
-        const t = setInterval(load, 10000);
-        return () => clearInterval(t);
-    }, []);
-    if (!needed) return null;
-    return (
-        <Card variant="secondary" className="panel notice-card">
-            <div className="row" style={{ padding: '12px 14px', gap: 12 }}>
-                <span className="grow small dim">
-                    A Windows Apple USB adapter can drop Wi‑Fi phones when another phone is plugged in. Market can switch
-                    it off.
-                </span>
-                <Button
-                    size="sm"
-                    variant="secondary"
-                    onPress={async () => {
-                        if (await act(() => post('/netfix', {}), 'Network adapter fixed')) setNeeded(false);
-                    }}
-                >
-                    Fix
-                </Button>
-            </div>
-        </Card>
-    );
+    return d.online ? 'On cable' : 'Not connected';
 }
 
 type StepState = 'done' | 'current' | 'todo';
@@ -221,10 +102,8 @@ function PhoneOnboardList({ devices }: { devices: Device[] }) {
     const act = useAction();
     const attention = useMemo(() => devices.filter(needsAttention), [devices]);
     const ready = useMemo(() => devices.filter((d) => d.status === 'ready'), [devices]);
-    const usbOnly = useMemo(() => devices.filter((d) => d.mode !== 'wifi'), [devices]);
     const [filter, setFilter] = useState<PhoneFilter>(attention.length ? 'attention' : 'all');
     const [openId, setOpenId] = useState<string | null>(null);
-    const [bulkBusy, setBulkBusy] = useState(false);
 
     useEffect(() => {
         if (filter === 'attention' && !attention.length) setFilter(ready.length ? 'ready' : 'all');
@@ -233,17 +112,6 @@ function PhoneOnboardList({ devices }: { devices: Device[] }) {
     const shown =
         filter === 'attention' ? attention : filter === 'ready' ? ready : devices;
     const open = shown.find((d) => d.udid === openId) ?? null;
-
-    async function enableWifiAll() {
-        setBulkBusy(true);
-        await act(async () => {
-            for (const d of usbOnly) {
-                await post(`/devices/${d.udid}/connection`, { mode: 'wifi' });
-            }
-            return usbOnly.length;
-        }, `Wi‑Fi enabled on ${usbOnly.length} phone${usbOnly.length === 1 ? '' : 's'}`);
-        setBulkBusy(false);
-    }
 
     return (
         <div className="setup-phones">
@@ -281,12 +149,6 @@ function PhoneOnboardList({ devices }: { devices: Device[] }) {
                 >
                     All
                 </button>
-                {usbOnly.length > 0 && (
-                    <Button size="sm" variant="secondary" isDisabled={bulkBusy} onPress={enableWifiAll}>
-                        <Wifi size={14} />
-                        Wi‑Fi on all
-                    </Button>
-                )}
             </div>
 
             {shown.length ? (
@@ -309,7 +171,6 @@ function PhoneOnboardList({ devices }: { devices: Device[] }) {
                                     <Table.Column isRowHeader>Phone</Table.Column>
                                     <Table.Column>Model</Table.Column>
                                     <Table.Column>Link</Table.Column>
-                                    <Table.Column>Connection</Table.Column>
                                     <Table.Column>Status</Table.Column>
                                     <Table.Column aria-label="Actions"> </Table.Column>
                                 </Table.Header>
@@ -336,16 +197,9 @@ function PhoneOnboardList({ devices }: { devices: Device[] }) {
                                                 </Table.Cell>
                                                 <Table.Cell>
                                                     <span className="row muted" style={{ gap: 6 }}>
-                                                        {d.connection === 'wifi' ? (
-                                                            <Wifi size={14} />
-                                                        ) : (
-                                                            <Cable size={14} />
-                                                        )}
-                                                        {d.connection === 'wifi' ? 'Wi‑Fi' : d.connection === 'usb' ? 'Cable' : '—'}
+                                                        <Cable size={14} />
+                                                        {d.connection === 'usb' ? 'Cable' : '—'}
                                                     </span>
-                                                </Table.Cell>
-                                                <Table.Cell>
-                                                    <ConnectionPicker device={d} compact />
                                                 </Table.Cell>
                                                 <Table.Cell>
                                                     {d.status === 'ready' ? (
@@ -514,9 +368,6 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
                             <span>Install Market on the phone, then trust it under Settings if prompted.</span>
                         </div>
                     </div>
-                    <p className="small muted" style={{ marginTop: 12 }}>
-                        For wireless use, choose Cable + Wi‑Fi while plugged in. After that you can unplug.
-                    </p>
                     {status.devices.length ? (
                         <PhoneOnboardList devices={status.devices} />
                     ) : (
@@ -528,7 +379,6 @@ export function SetupPage({ setup }: { setup: SetupInfo | null }) {
                             </div>
                         </div>
                     )}
-                    <FoundOnWifi />
                 </Step>
 
                 <Panel title="Preferences">

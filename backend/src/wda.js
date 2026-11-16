@@ -88,8 +88,10 @@ class WDAClient {
     async screenSize() {
         try {
             const screen = (await this.request('GET', '/wda/screen', null, { timeout: 10000 })).value;
+            if (screen?.scale) this.scale = screen.scale; // pixels per point (2 or 3)
             if (screen?.screenSize) return screen.screenSize;
         } catch {}
+        if (!this.sessionId) return null; // the fallback below needs a session
         return (await this.request('GET', `/session/${this.sessionId}/window/size`, null, { timeout: 30000 })).value;
     }
 

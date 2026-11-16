@@ -1,6 +1,6 @@
 'use client';
 import { Button, Card, Table } from '@heroui/react';
-import { Cable, ChevronRight, Play, Plug, Upload, Wifi } from 'lucide-react';
+import { Cable, ChevronRight, Play, Plug, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { EmptyCard, StatusBadge, TableSection } from '@/components/common';
 import { get, post, type Schedule } from '@/lib/api';
@@ -132,12 +132,7 @@ export function HomePage() {
                                                     </Table.Cell>
                                                     <Table.Cell>
                                                         <span className="row muted" style={{ gap: 6 }}>
-                                                            {d.connection === 'wifi' ? (
-                                                                <>
-                                                                    <Wifi size={14} />
-                                                                    Wi-Fi
-                                                                </>
-                                                            ) : d.connection === 'usb' ? (
+                                                            {d.connection === 'usb' ? (
                                                                 <>
                                                                     <Cable size={14} />
                                                                     USB

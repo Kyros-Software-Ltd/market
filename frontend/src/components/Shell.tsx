@@ -9,7 +9,6 @@ import { PhoneControl } from '@/components/PhoneControl';
 import { PromptProvider } from '@/components/Prompt';
 import { TwoFactorDialog } from '@/components/Sideload';
 import { UpdateNotice, VersionTag } from '@/components/Update';
-import { WifiAdapterFix } from '@/views/Setup';
 import { CalendarIcon, ClaudeCodeIcon, FlowIcon, FolderOpenIcon, HomeIcon, PhoneIcon, SetupIcon } from '@/lib/icons';
 import { type Page, StoreProvider, useStore } from '@/lib/store';
 
@@ -127,7 +126,6 @@ function Frame({ children }: { children: ReactNode }) {
                                     </Button>
                                 </div>
                             )}
-                            <WifiAdapterFix />
                             {children}
                         </div>
                     </div>

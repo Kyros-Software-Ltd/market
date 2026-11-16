@@ -2,41 +2,21 @@
     "port": 4000,
     "affrevUrl": "https://affrev.com",
 
-    "controlEngine": "wda",
-    "debugCoreDevice": true,
-    "directControlMinIos": 27,
-
-    "devicekit": {
-        "bundleId": "com.mobilenext.devicekit-iosUITests.xctrunner",
-        "xctestConfig": "devicekit-iosUITests.xctest",
-        "devicePort": 12004,
-        "mjpegFramerate": 60,
-        "mjpegQuality": 40,
-        "mjpegScale": 50
-    },
-
     "wda": {
         "bundleId": "com.facebook.WebDriverAgentRunner.xctrunner",
-        "testRunnerBundleId": "com.facebook.WebDriverAgentRunner.xctrunner",
-        "xctestConfig": "WebDriverAgentRunner.xctest",
         "devicePort": 8100,
         "mjpegDevicePort": 9100,
         "mjpegFramerate": 60,
         "mjpegScalingFactor": 55,
+        "mjpegTargetWidth": 520,
         "mjpegQuality": 50
     },
 
     "localPorts": {
         "wdaBase": 8100,
-        "mjpegBase": 9100,
-        "directBase": 9300,
-        "devicekitBase": 12004,
-        "screenshotBase": 13333,
-        "tunnelInfoBase": 28200,
-        "tunnelUserspaceBase": 60305
+        "mjpegBase": 9100
     },
 
-    "usbmuxProxyPort": 27115,
     "appleUsbmuxPort": 27015,
 
     "autoConnect": true,

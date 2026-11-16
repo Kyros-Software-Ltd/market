@@ -25,7 +25,7 @@ export function phoneCopy(d: Device, installing = false): PhoneCopy {
     if (d.status === 'offline' || d.status === 'stopped') {
         return {
             title: d.status === 'stopped' ? 'Stopped' : 'Away',
-            detail: 'Plug in or wake the phone on Wi‑Fi to continue.',
+            detail: 'Plug the phone in to continue.',
             tone: 'neutral',
         };
     }
@@ -59,12 +59,6 @@ function actionCopy(kind: string, name: string, fallback: string, title?: string
             return {
                 title: title || 'Trust this PC',
                 detail: fallback || `Unlock ${name}, tap Trust This Computer, then enter the passcode.`,
-                tone: 'wait',
-            };
-        case 'plug-in':
-            return {
-                title: title || 'Plug in once for Wi‑Fi',
-                detail: fallback || `${name} needs one cable session so wireless control can be set up.`,
                 tone: 'wait',
             };
         case 'install':

@@ -1,7 +1,6 @@
 // Thin wrapper around the go-ios CLI (https://github.com/danielpaulus/go-ios), which talks
-// to iPhones through usbmux: Market's proxy (usbmux-proxy.js) in front of Apple's service,
-// set via USBMUXD_SOCKET_ADDRESS when the server starts.
-// Each phone can use its own tunnel-info-port so one tunnel dying does not take the others.
+// to iPhones through the usbmux service of the Apple phone drivers (USBMUXD_SOCKET_ADDRESS,
+// set when the server starts). Market uses it to list plugged-in phones and their apps.
 const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');

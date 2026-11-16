@@ -104,8 +104,7 @@ export function PhonesPage() {
             ) : (
                 <Card className="panel">
                     <Empty icon={<Plug />} title="No iPhones detected">
-                        Plug a phone in with a data cable, unlock it and tap Trust This Computer. Phones set to USB +
-                        Wi-Fi in Setup show up here without the cable.
+                        Plug a phone in with a data cable, unlock it and tap Trust This Computer.
                     </Empty>
                 </Card>
             )}

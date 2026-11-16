@@ -1,9 +1,8 @@
 'use client';
-// Live phone screen via DeviceKit / legacy WDA MJPEG, or Direct HEVC (iOS 27).
+// Live phone screen from the control app's MJPEG stream.
 // Decoded off the main thread; only the newest frame is painted each refresh.
 // `profile` picks stream load: grid is light (many phones), focus is high fps (one phone).
 import { forwardRef, type HTMLAttributes, useEffect, useImperativeHandle, useRef } from 'react';
-import { VideoScreen } from './VideoScreen';
 
 export type StreamProfile = 'grid' | 'focus';
 
@@ -13,7 +12,7 @@ export type ScreenProps = HTMLAttributes<HTMLCanvasElement> & {
     onFps?: (fps: number) => void;
     /** grid = many cards; focus = control panel. Defaults to focus. */
     profile?: StreamProfile;
-    engine?: 'wda' | 'devicekit' | 'direct' | null;
+    engine?: 'wda' | null;
 };
 
 /** Hint only — backend hub uses the phone's configured stream. Kept light for heavy apps (X, TikTok). */
@@ -30,14 +29,7 @@ const find = (b: Uint8Array, len: number, x: number, y: number, from: number) =>
 };
 
 export const LiveScreen = forwardRef<HTMLCanvasElement, ScreenProps>(function LiveScreen(
-    { engine, ...rest },
-    ref,
-) {
-    return engine === 'direct' ? <VideoScreen ref={ref} {...rest} /> : <MjpegScreen ref={ref} {...rest} />;
-});
-
-const MjpegScreen = forwardRef<HTMLCanvasElement, ScreenProps>(function MjpegScreen(
-    { udid, onFps, profile = 'focus', ...rest },
+    { udid, onFps, profile = 'focus', engine: _engine, ...rest },
     ref,
 ) {
     const canvas = useRef<HTMLCanvasElement>(null);
@@ -109,7 +101,7 @@ const MjpegScreen = forwardRef<HTMLCanvasElement, ScreenProps>(function MjpegScr
                         cache: 'no-store',
                     });
                     // Only nudge a reconnect when the phone is not streaming yet — a 502 is often
-                    // a brief hub blip; forcing /connect tears DeviceKit down and freezes at 0 fps.
+                    // a brief hub blip; forcing /connect restarts the control app and freezes at 0 fps.
                     if (res.status === 409) {
                         try {
                             await fetch(`/api/devices/${udid}/connect`, { method: 'POST', cache: 'no-store' });

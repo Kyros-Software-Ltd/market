@@ -94,7 +94,7 @@ function runHelper(kind, args, { password = '', udid = null } = {}) {
         ...(anisette ? ['--anisette', anisette, '--anisette-source', 'server'] : []),
     ], {
         windowsHide: true,
-        env: process.env, // USBMUXD_SOCKET_ADDRESS: Market's usbmux proxy, so Wi-Fi phones work too
+        env: process.env, // carries USBMUXD_SOCKET_ADDRESS
     });
     job = { kind, udid, step: 'Starting…', percent: null, twoFactor: null, startedAt: Date.now(), child };
     child.stdin.write(`${JSON.stringify({ password })}\n`);
@@ -226,13 +226,7 @@ async function pump() {
         devices?.get(udid).log(auto ? 'Re-signing the control app…' : 'Installing the control app…');
     } catch {}
     try {
-        // Install the app connect() looks for on this phone. Picking it separately here (DeviceKit
-        // for iOS 27+) while connect wanted WDA left the phone asking for an install forever.
-        let engine = loadConfig().controlEngine === 'devicekit' ? 'devicekit' : 'wda';
-        try {
-            if (devices) engine = devices.controlEngineFor(udid);
-        } catch {}
-        const ipa = await setup.ensureControlIpa(engine);
+        const ipa = await setup.ensureWdaIpa();
         const done = await runHelper('install', ['install', '--apple-id', appleId, '--ipa', ipa, '--udid', udid], {
             udid,
         });

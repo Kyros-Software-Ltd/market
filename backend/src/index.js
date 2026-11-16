@@ -15,25 +15,16 @@ const media = require('./media');
 const { Controller } = require('./control');
 const { AutomationRunner } = require('./automations');
 const { Scheduler } = require('./scheduler');
-const { UsbmuxProxy } = require('./usbmux-proxy');
-const { Wifi } = require('./wifi');
 
 const config = loadConfig();
 const MCP_SCRIPT = path.join(ROOT, 'mcp', 'phones-mcp.js');
 
 function createApp() {
     prepareDataDir();
-    // Every phone tool (go-ios, the Python helper) goes through Market's usbmux proxy, which
-    // passes USB straight to Apple's service and adds phones set to connect over Wi-Fi.
-    const proxy = new UsbmuxProxy({
-        port: config.usbmuxProxyPort,
-        applePort: config.appleUsbmuxPort,
-        log: (l) => console.log(l),
-    });
-    process.env.USBMUXD_SOCKET_ADDRESS = proxy.address;
-    const wifi = new Wifi(proxy, config.appleUsbmuxPort);
+    // Every phone tool (go-ios, the Python helper, the installer) talks to the usbmux service
+    // that comes with the Apple phone drivers on this PC.
+    process.env.USBMUXD_SOCKET_ADDRESS = `127.0.0.1:${config.appleUsbmuxPort}`;
     const devices = new DeviceManager(config);
-    devices.wifi = wifi;
     const control = new Controller(devices);
     const runner = new AutomationRunner(devices, control);
     const scheduler = new Scheduler(devices, runner);
@@ -125,46 +116,11 @@ function createApp() {
             devices.disconnect(req.params.udid);
         }),
     );
-    // Connection choice: 'usb' (USB only) or 'wifi' (USB + Wi-Fi, cable first).
-    app.post(
-        '/api/devices/:udid/connection',
-        api(async (req) => {
-            const mode = req.body.mode === 'wifi' ? 'wifi' : 'usb';
-            const out = await wifi.setMode(req.params.udid, mode);
-            try {
-                devices.get(req.params.udid).mode = mode;
-            } catch {
-                /* not connected right now */
-            }
-            return out;
-        }),
-    );
-    // Phones already trusted with this PC that Apple's service sees on Wi-Fi but aren't set to use it.
-    app.get(
-        '/api/wifi/found',
-        api(() => wifi.found()),
-    );
-    // Apple's USB network adapter stops Wi-Fi phones being found while a phone is plugged in.
-    app.get(
-        '/api/netfix',
-        api(async () => ({
-            needed:
-                devices.list().some((d) => d.mode === 'wifi') && (await require('./netfix').activeAdapters()).length > 0,
-        })),
-    );
-    app.post(
-        '/api/netfix',
-        api(() => require('./netfix').disableAdapters()),
-    );
     app.post(
         '/api/devices/:udid/rename',
         api((req) => {
             devices.rename(req.params.udid, String(req.body.name || '').trim());
         }),
-    );
-    app.post(
-        '/api/devices/:udid/engine',
-        api((req) => devices.setEnginePreference(req.params.udid, String(req.body.preference || 'auto'))),
     );
     app.get(
         '/api/devices/:udid/apps',
@@ -184,10 +140,9 @@ function createApp() {
         }
     });
 
-    // One upstream MJPEG per phone, fanned out to every browser viewer. Two LiveScreens
-    // (grid + control dock) used to open two DeviceKit /mjpeg sessions and starve each other.
-    // Heavy apps (X, TikTok) make DeviceKit's screenshot stream pause — reconnect the upstream
-    // quietly instead of ending every viewer (that showed as fps → 0 for seconds).
+    // One upstream MJPEG per phone, fanned out to every browser viewer (the grid and the
+    // control dock both show it). If the upstream pauses, reconnect it quietly instead of
+    // ending every viewer (that showed as fps → 0 for seconds).
     const mjpegHubs = new Map(); // udid -> hub
 
     const closeMjpegHub = (hub, { endClients = true } = {}) => {
@@ -273,30 +228,6 @@ function createApp() {
         });
         hub.upstream = upstream;
     };
-
-    // iOS 27 Direct: HEVC video + codec (VideoScreen in the UI).
-    for (const [route, upstreamPath] of [
-        ['codec', '/codec'],
-        ['video', '/stream.bin'],
-    ]) {
-        app.get(`/api/devices/:udid/${route}`, (req, res) => {
-            const device = devices.devices.get(req.params.udid);
-            const port = device?.client?.streamPort;
-            if (!port) return res.status(409).json({ error: 'Phone is not streaming' });
-            const upstream = http.get({ host: '127.0.0.1', port, path: upstreamPath }, (up) => {
-                res.writeHead(up.statusCode || 200, {
-                    'Content-Type': up.headers['content-type'] || 'application/octet-stream',
-                    'Cache-Control': 'no-store',
-                });
-                up.pipe(res);
-            });
-            upstream.on('error', (e) => {
-                if (!res.headersSent) res.status(502).json({ error: e.message });
-                else res.end();
-            });
-            req.on('close', () => upstream.destroy());
-        });
-    }
 
     app.get('/api/devices/:udid/stream', (req, res) => {
         const udid = req.params.udid;
@@ -598,7 +529,7 @@ function createApp() {
         api(() => connectClaudeDesktop()),
     );
 
-    return { app, devices, control, runner, scheduler, proxy, wifi };
+    return { app, devices, control, runner, scheduler };
 }
 
 // ---------- Claude Desktop hookup ----------
@@ -682,7 +613,6 @@ async function start({ port = config.port } = {}) {
     const ctx = createApp();
     return new Promise((resolve, reject) => {
         const server = ctx.app.listen(port, '127.0.0.1', () => {
-            ctx.proxy.start();
             ctx.devices.start();
             ctx.scheduler.start();
             account.start();

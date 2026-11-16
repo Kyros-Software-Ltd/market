@@ -269,7 +269,7 @@ export function PhoneControl({ udid }: { udid: string }) {
                 if (press.current !== p) return;
                 p.held = true;
                 p.ring.classList.add('held');
-                // Short hold — DeviceKit pauses the live stream for the whole longpress.
+                // Short hold, so the press does not block the next action for long.
                 send('longpress', { x: start.x, y: start.y, ms: 450 });
             }, HOLD_MS),
         };

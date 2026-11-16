@@ -18,12 +18,12 @@ npm start
 The app opens on **Setup** and walks you through:
 
 1. **Apple USB driver.** If it's missing, the app links to the free **Apple Devices** app in the Microsoft Store (iTunes works too).
-2. **Apple ID for the control app.** Every phone runs **DeviceKit** (shown as "Market"), signed with a **spare free Apple ID**. Sign in once in Setup, then click **Install** on each phone; about a minute per phone. Trust that Apple ID once under **Settings → General → VPN & Device Management**.
-3. **Phones.** Plug each one in, unlock it, turn on Developer Mode if asked, and Market starts the live screen. USB and Wi‑Fi use the same DeviceKit session.
+2. **Apple ID for the control app.** Every phone runs **WebDriverAgent** (shown as "Market"), signed with a **spare free Apple ID**. Sign in once in Setup, then click **Install** on each phone; about a minute per phone. Trust that Apple ID once under **Settings → General → VPN & Device Management**.
+3. **Phones.** Plug each one in, unlock it, turn on Developer Mode if asked, and Market starts the live screen. USB and Wi‑Fi take the same path.
 
 Each step that needs you shows the exact steps on the phone's card. The app re-checks every few seconds, so it carries on as soon as you've done it.
 
-**One method: DeviceKit.** JSON-RPC control + MJPEG live view on every iOS version — USB or Wi‑Fi. Each phone has its own tunnel; iOS 27 Wi‑Fi starts DeviceKit through pymobiledevice3 when go-ios cannot. No CoreDevice screen recording, so banking apps are not blacked out. A free Apple ID signature lasts 7 days; Market re-signs plugged-in phones when you've signed in in Setup.
+**One method: WebDriverAgent.** Control on one port and MJPEG live view on another, on every iOS version, over USB or Wi‑Fi. Each phone has one worker process (`backend/src/py/phone_worker.py`) that owns its tunnel and control app; if anything breaks the worker exits and Market starts a fresh one. A free Apple ID signature lasts 7 days; Market re-signs plugged-in phones when you've signed in in Setup.
 
 **Wi-Fi:** in **Setup → Phones**, set a phone to **USB + Wi-Fi** while it's plugged in. It then uses the cable when plugged in and Wi-Fi when not. Phones this PC already trusts that are on your Wi-Fi show under **Found on Wi-Fi**. A phone must be plugged in once to trust the PC (Apple's rule). The live view over Wi-Fi depends on the phone's signal: 5 GHz and the screen on work best.
 
@@ -95,9 +95,9 @@ In busy video apps (TikTok, Reels) the screen is only read a few levels deep so 
 ## Project layout
 
 ```
-backend/            Phone engine (Node): DeviceKit (+ optional WDA/CoreDevice), setup, controls,
+backend/            Phone engine (Node): device list, per-phone supervisor, setup, controls,
   src/              media, automations, scheduler, Wi-Fi (usbmux proxy), updates, local API on :4000
-  src/py/           Python helpers: media transfer, Wi-Fi switch, optional CoreDevice
+  src/py/           Python helpers: the per-phone worker, media transfer, Wi-Fi switch
   mcp/              Claude's tools (MCP server)
   automations/      Example automations copied to the user's folder on first run
   config.json       Ports, WebDriverAgent and stream settings
@@ -115,17 +115,17 @@ sideload/           market-sideload: signs and installs the control app with an 
 ## How it works
 
 ```
-Dashboard (Next.js) ── Backend ── go-ios ── USB / Wi-Fi ── iPhone ── DeviceKit
+Dashboard (Next.js) ── Backend ── phone worker ── USB / Wi-Fi ── iPhone ── WebDriverAgent
       │
 Claude ┘ via backend/mcp/phones-mcp.js
 ```
 
 These open-source tools do the heavy lifting:
 
-- [DeviceKit iOS](https://github.com/mobile-next/devicekit-ios) is the **one** control app for every phone: JSON-RPC taps/type/apps plus MJPEG (and H264) streaming. Market downloads the runner IPA and sideloads it. Licensed under the Functional Source License (FSL 1.1); not for shipping as a competing commercial product without a separate license from Mobile Next.
-- [go-ios](https://github.com/danielpaulus/go-ios) handles USB/Wi‑Fi listing, the iOS 17+ tunnel, the developer image, and starting the DeviceKit XCUITest runner.
-- `sideload/` (Rust, built on [isideload](https://github.com/nab138/isideload)) signs DeviceKit with your Apple ID and installs it; Market re-signs plugged-in phones every week.
-- [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) mounts the developer image when go-ios can't, copies media, and starts DeviceKit over Wi‑Fi on iOS 27 (`backend/src/py/devicekit_runner.py`).
+- [WebDriverAgent](https://github.com/appium/WebDriverAgent) is the **one** control app for every phone: taps, typing, apps and the on-screen element list, plus MJPEG streaming. Market downloads the runner IPA and sideloads it.
+- [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) connects every phone (`backend/src/py/phone_worker.py`): trust check, developer image, the iOS 17+ tunnel, and starting WebDriverAgent. It also copies media.
+- `sideload/` (Rust, built on [isideload](https://github.com/nab138/isideload)) signs WebDriverAgent with your Apple ID and installs it; Market re-signs plugged-in phones every week.
+- [go-ios](https://github.com/danielpaulus/go-ios) lists the phones on USB/Wi‑Fi and their installed apps.
 
 Data lives in `%APPDATA%\Market`, moved over automatically from the old `Marketing Phones` folder: phone names, automations, schedules, job history, the media library, `WDA.ipa` and each phone's control-app countdown. Your Apple ID password is kept in Windows' Credential Manager, never in the data folder.
 

@@ -43,4 +43,9 @@ function info(udid) {
     return { expiresAt, resignSoon: expiresAt - Date.now() < WARN_BEFORE_MS };
 }
 
-module.exports = { started, expired, installed, info };
+/** The control app's bundle id on this phone the last time it ran or was installed. */
+function bundleId(udid) {
+    return load()[udid]?.bundleId || null;
+}
+
+module.exports = { started, expired, installed, info, bundleId };
