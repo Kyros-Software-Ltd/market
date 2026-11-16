@@ -1034,6 +1034,11 @@ class DeviceManager {
         return (this.config.controlEngine || 'wda') === 'devicekit';
     }
 
+    /** The control app connect() will look for on this phone, so installs put that same one on it. */
+    controlEngineFor(udid) {
+        return this.usesDeviceKit(this.get(udid)) ? 'devicekit' : 'wda';
+    }
+
     async tryReuseWda(device) {
         if (this.usesDeviceKit(device) || this.usesDirectControl(device)) return false;
         if (device.engine !== 'wda' || !device.mjpegPort) return false;
