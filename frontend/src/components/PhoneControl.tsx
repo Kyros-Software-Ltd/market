@@ -6,6 +6,7 @@ import {
     Circle,
     CornerDownLeft,
     Lock,
+    Navigation,
     Pencil,
     Send,
     Square,
@@ -42,6 +43,9 @@ interface Press {
     ring: HTMLDivElement;
 }
 
+// A jump straight to a screen in TikTok or Instagram (backend/src/shortcuts.js).
+type Shortcut = { id: string; app: string; bundleId: string; name: string; param?: { key: string; label: string } };
+
 const HOLD_MS = 500;
 const STILL_PX = 12; // a hand on a mouse wobbles a little; this much still counts as holding still
 
@@ -63,6 +67,7 @@ export function PhoneControl({ udid }: { udid: string }) {
     const [fps, setFps] = useState<number | null>(null);
     const [text, setText] = useState('');
     const [apps, setApps] = useState<{ bundleId: string; name: string }[]>([]);
+    const [shortcuts, setShortcuts] = useState<Shortcut[]>([]);
     const [logs, setLogs] = useState<string[]>([]);
     const [rec, setRec] = useState<{ steps: Step[]; last: number } | null>(null);
     const recRef = useRef(rec);
@@ -85,6 +90,26 @@ export function PhoneControl({ udid }: { udid: string }) {
                 .then(setApps)
                 .catch(() => {});
     }, [udid, ready]);
+
+    useEffect(() => {
+        get<Shortcut[]>('/shortcuts')
+            .then(setShortcuts)
+            .catch(() => {});
+    }, []);
+
+    // Only the shortcuts for apps this phone has.
+    const installed = new Set(apps.map((a) => a.bundleId));
+    const goToItems = shortcuts
+        .filter((x) => installed.has(x.bundleId))
+        .map((x) => ({ key: x.id, label: `${x.app} · ${x.name}` }));
+
+    async function goTo(id: string) {
+        const shortcut = shortcuts.find((x) => x.id === id);
+        if (!shortcut) return;
+        if (!shortcut.param) return send('shortcut', { id });
+        const value = await ask({ title: `${shortcut.app}: ${shortcut.name}`, placeholder: shortcut.param.label });
+        if (value) send('shortcut', { id, value });
+    }
 
     useEffect(() => {
         const load = () =>
@@ -190,6 +215,7 @@ export function PhoneControl({ udid }: { udid: string }) {
             }),
             type: () => ({ do: 'type', text: args.text, ...(args.submit ? { submit: true } : {}) }),
             launch: () => ({ do: 'launch', bundleId: args.bundleId }),
+            shortcut: () => ({ do: 'shortcut', id: args.id, ...(args.value ? { value: args.value } : {}) }),
             home: () => ({ do: 'home' }),
         };
         if (!map[action]) return;
@@ -504,6 +530,13 @@ export function PhoneControl({ udid }: { udid: string }) {
                             isDisabled={!ready}
                             items={apps.map((a) => ({ key: a.bundleId, label: a.name }))}
                             onAction={(bundleId) => send('launch', { bundleId })}
+                        />
+                        <ActionMenu
+                            label="Go to"
+                            icon={<Navigation size={15} />}
+                            isDisabled={!ready}
+                            items={goToItems}
+                            onAction={goTo}
                         />
 
                         {rec ? (

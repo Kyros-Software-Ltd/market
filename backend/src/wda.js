@@ -8,6 +8,13 @@ const { humanPath, tapHoldMs, rand } = require('./touch-path');
 // forever and every command queues behind it. Measured on an iPhone XS in TikTok:
 // stuck for 30s+ without these, ~0.6s per tap with them.
 const RESPONSIVE_SETTINGS = {
+    // Before every command WDA works out which app is in front by asking that app over
+    // accessibility. TikTok and Instagram take ~12 s to answer, twice per tap, so taps took 24 s
+    // and piled up until Market restarted the control app. Naming the home screen as the
+    // active app skips that question; touches are sent to the screen, so they still land in
+    // whatever app is open. Measured on an iPhone XR in TikTok: 24.5 s per tap before, 0.47 s
+    // after. Reading the screen switches this back for the one call (see elements()).
+    defaultActiveApplication: 'com.apple.springboard',
     accessibilityDeadline: 1, // give up on an unresponsive app after 1s instead of waiting forever
     // Reading TikTok's whole UI tree takes 13s+ and blocks taps meanwhile; keep reads
     // shallow (tabs and top-level buttons still show; video side buttons need coordinates).
@@ -227,14 +234,30 @@ class WDAClient {
         return (await this.request('GET', '/screenshot', null, { timeout: 20000 })).value; // base64 PNG
     }
 
+    // Runs fn against the app that is really in front, instead of the home screen that
+    // RESPONSIVE_SETTINGS names for speed. Slow in busy apps: the phone has to work out which
+    // app is in front (about 12 s in TikTok) before it reads anything.
+    async inFrontApp(fn) {
+        await this.setSettings({ defaultActiveApplication: 'auto' });
+        try {
+            return await fn();
+        } finally {
+            await this.applySettings().catch(() => {});
+        }
+    }
+
     async source() {
-        return (await this.session('GET', '/source', null, { timeout: 30000 })).value;
+        return this.inFrontApp(async () => (await this.session('GET', '/source', null, { timeout: 60000 })).value);
     }
 
     // Visible, labelled UI elements with their frames in points. This is what lets
     // automations and Claude "tap 'Like'" instead of guessing coordinates.
-    async elements({ timeout = 12000 } = {}) {
-        const tree = (await this.request('GET', '/source?format=json', null, { timeout })).value;
+    // Best effort: in TikTok and Reels reading the tree takes over a minute, so give up after
+    // 20 s rather than hold every tap behind it. Touches by position still work there.
+    async elements({ timeout = 20000 } = {}) {
+        const tree = await this.inFrontApp(
+            async () => (await this.request('GET', '/source?format=json', null, { timeout })).value,
+        );
         const { width, height } = this.size || { width: 10000, height: 10000 };
         const out = [];
         const walk = (node) => {

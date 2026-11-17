@@ -343,6 +343,39 @@ const tools = [
         },
     },
     {
+        name: 'go_to',
+        description:
+            "Jump straight to a screen in TikTok or Instagram using the app's own link: faster and steadier than " +
+            'tapping through menus, and works on every iOS version. Shortcuts: ' +
+            'tiktok.feed, tiktok.following, tiktok.inbox, tiktok.search, tiktok.search_for (query), tiktok.camera, ' +
+            'tiktok.shop, tiktok.settings, tiktok.profile (your own), tiktok.user (id: numeric user id), ' +
+            'tiktok.video (id: numeric video id); instagram.feed, instagram.reels, instagram.explore, ' +
+            'instagram.messages, instagram.new_message, instagram.activity, instagram.profile, instagram.camera, ' +
+            'instagram.story, instagram.saved, instagram.your_activity, instagram.settings, ' +
+            'instagram.user (username), instagram.tag (tag).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                phone: PHONE,
+                shortcut: { type: 'string', description: 'e.g. "tiktok.inbox" or "instagram.user"' },
+                value: {
+                    type: 'string',
+                    description: 'For shortcuts that need one: the search text, username, hashtag or id',
+                },
+                look_after: LOOK_AFTER,
+            },
+            required: ['shortcut'],
+        },
+        async run(a) {
+            return act(
+                { ...a, settle_ms: a.settle_ms ?? 2500 },
+                'shortcut',
+                { id: a.shortcut, value: a.value },
+                `Went to ${a.shortcut}${a.value ? ` (${a.value})` : ''}`,
+            );
+        },
+    },
+    {
         name: 'close_app',
         description: 'Force-close an app by name or bundle id.',
         inputSchema: { type: 'object', properties: { phone: PHONE, app: { type: 'string' } }, required: ['app'] },

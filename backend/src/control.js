@@ -2,6 +2,7 @@
 // app, Claude through MCP, or an automation). It keeps one queue per phone, recovers
 // a wedged WebDriverAgent, and records an activity feed so you can see who did what.
 const { findElement } = require('./wda');
+const shortcuts = require('./shortcuts');
 
 // Manual control goes through one queue per phone. WDA handles one touch at a time,
 // so when the phone is slow (e.g. an app is loading) extra clicks would otherwise
@@ -35,11 +36,20 @@ class Controller {
     }
 
     // Runner main thread sometimes wedges. Restarting kills the live stream for seconds, so
-    // only do it after many timeouts — and never for a single slow swipe on a busy app (X).
-    noteTimeout(udid, device, q) {
+    // only do it after many timeouts, and only if the control app has stopped answering at
+    // all: a busy app (TikTok, Instagram) makes single actions slow without anything being broken.
+    async noteTimeout(udid, device, q) {
         q.timeouts = (q.timeouts || 0) + 1;
         if (q.timeouts < 5 || device.status !== 'ready') return;
         q.timeouts = 0;
+        const alive = await device.client
+            ?.status()
+            .then(() => true)
+            .catch(() => false);
+        if (alive) {
+            device.log('Phone is slow to answer actions, but the control app is still up; not restarting');
+            return;
+        }
         device.log('Phone stopped responding to actions; restarting the control app');
         this.devices.connect(udid).catch(() => {});
     }
@@ -157,6 +167,17 @@ const ACTIONS = {
     volumeUp: (w) => w.pressButton('volumeUp'),
     volumeDown: (w) => w.pressButton('volumeDown'),
     launch: (w, b) => w.launchApp(b.bundleId),
+    // Straight to a screen in TikTok or Instagram through the app's own link (see shortcuts.js).
+    shortcut: async (w, b) => {
+        const s = shortcuts.find(b.id);
+        const url = shortcuts.urlFor(s, b);
+        await w.openUrl(url);
+        if (s.thenTap) {
+            await new Promise((r) => setTimeout(r, 1500));
+            await w.tap(s.thenTap.x * w.size.width, s.thenTap.y * w.size.height);
+        }
+        return { app: s.app, name: s.name, url };
+    },
     openUrl: (w, b) => w.openUrl(String(b.url)),
     terminate: (w, b) => w.terminateApp(b.bundleId),
 };
@@ -186,6 +207,8 @@ function describe(action, b, result) {
             return `open link ${String(b.url).slice(0, 40)}`;
         case 'terminate':
             return `close ${b.bundleId}`;
+        case 'shortcut':
+            return result ? `go to ${result.app} ${result.name.replace('…', '')}` : `go to ${b.id}`;
         default:
             return action;
     }

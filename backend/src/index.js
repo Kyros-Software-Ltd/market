@@ -123,6 +123,10 @@ function createApp() {
         }),
     );
     app.get(
+        '/api/shortcuts',
+        api(() => require('./shortcuts').SHORTCUTS),
+    );
+    app.get(
         '/api/devices/:udid/apps',
         api((req) => devices.listApps(req.params.udid, { refresh: req.query.refresh === '1' })),
     );

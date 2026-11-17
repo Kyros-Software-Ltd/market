@@ -66,6 +66,8 @@ function createContext(device, job, control) {
         longPressPct: (x, y, ms) => act('longpress', { x, y, ms }),
         longPress: (x, y, ms) => act('longpress', { x, y, ms, unit: 'pt' }),
         openUrl: (url) => act('openUrl', { url }),
+        // e.g. ctx.goTo('tiktok.inbox') or ctx.goTo('instagram.user', { username: 'nasa' })
+        goTo: (id, args = {}) => act('shortcut', { id, ...args }),
         swipe: (x1, y1, x2, y2, ms) => act('swipe', { x1, y1, x2, y2, ms, unit: 'pt' }),
         swipePct: (x1, y1, x2, y2, ms) => act('swipe', { x1, y1, x2, y2, ms }),
         dragPct: (x1, y1, x2, y2, hold, ms) => act('drag', { x1, y1, x2, y2, hold, ms }),
@@ -165,6 +167,7 @@ const FLOW_STEPS = {
     type: (ctx, s) => ctx.type(s.text + (s.submit ? '\n' : '')),
     home: (ctx) => ctx.home(),
     launch: (ctx, s) => ctx.launch(s.bundleId),
+    shortcut: (ctx, s) => ctx.goTo(s.id, s),
     terminate: (ctx, s) => ctx.terminate(s.bundleId).catch(() => {}),
     wait: (ctx, s) => ctx.sleep((s.ms || 1000) * rand(0.75, 1.25)),
     waitRandom: (ctx, s) => ctx.sleepRandom(s.minMs || 1000, s.maxMs || 3000),
