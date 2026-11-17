@@ -20,7 +20,9 @@ concurrency:
 
 jobs:
     build:
-        runs-on: macos-15
+        # GitHub often has no Apple-silicon Mac free for these jobs ("not acquired by Runner");
+        # its Intel Macs build the same iPhone app.
+        runs-on: macos-15-intel
         steps:
             - uses: actions/checkout@v4
             - uses: maxim-lobanov/setup-xcode@v1
