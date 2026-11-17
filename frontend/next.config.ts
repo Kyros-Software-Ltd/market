@@ -9,6 +9,7 @@ const config: NextConfig = {
         return [{ source: '/api/:path*', destination: `${BACKEND}/api/:path*` }];
     },
     experimental: {
+        agentUpgrade: 'security',
         // Building WDA.ipa, sending media or mounting a developer image can take minutes.
         proxyTimeout: 10 * 60 * 1000,
     },
