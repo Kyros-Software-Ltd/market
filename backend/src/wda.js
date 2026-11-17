@@ -29,6 +29,9 @@ class WDAClient {
         this.baseUrl = baseUrl;
         this.sessionId = null;
         this.size = null; // logical screen size in points, e.g. { width: 390, height: 844 }
+        // The app Market last opened. Reads name it as the app in front, which skips the
+        // phone working out what's in front (seconds in TikTok). null = let the phone decide.
+        this.frontApp = null;
     }
 
     async request(method, path, body, { timeout = 15000 } = {}) {
@@ -211,6 +214,7 @@ class WDAClient {
     }
 
     home() {
+        this.frontApp = null;
         return this.request('POST', '/wda/homescreen');
     }
 
@@ -222,11 +226,52 @@ class WDAClient {
         return this.request('POST', '/wda/unlock');
     }
 
+    /**
+     * The on-screen element whose label is the text (or, failing that, starts with it), without
+     * reading the whole screen: ~0.2 s in TikTok against 1-6 s for a full read. null if none.
+     */
+    async findText(text) {
+        const q = String(text).trim().replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        if (!q) return null;
+        const { width, height } = this.size || { width: 10000, height: 10000 };
+        return this.inFrontApp(async () => {
+            for (const predicate of [`label ==[c] "${q}"`, `label BEGINSWITH[c] "${q}"`]) {
+                const found = (await this.session('POST', '/elements', { using: 'predicate string', value: predicate }))
+                    .value;
+                const hits = [];
+                for (const el of (found || []).slice(0, 6)) {
+                    const id = el.ELEMENT || el['element-6066-11e4-a52e-4f735466cecf'];
+                    const r = (await this.session('GET', `/element/${id}/rect`)).value;
+                    const onScreen =
+                        r.width > 2 &&
+                        r.height > 2 &&
+                        r.x < width &&
+                        r.y < height &&
+                        r.x + r.width > 0 &&
+                        r.y + r.height > 0;
+                    if (onScreen)
+                        hits.push({
+                            label: String(text),
+                            x: r.x + r.width / 2,
+                            y: r.y + r.height / 2,
+                            w: r.width,
+                            h: r.height,
+                        });
+                }
+                // Smallest first: a big container often repeats its children's text.
+                if (hits.length) return hits.sort((a, b) => a.w * a.h - b.w * b.h)[0];
+            }
+            return null;
+        });
+    }
+
     launchApp(bundleId) {
+        this.frontApp = bundleId;
         return this.session('POST', '/wda/apps/launch', { bundleId }, { timeout: 60000 });
     }
 
     terminateApp(bundleId) {
+        if (this.frontApp === bundleId) this.frontApp = null;
         return this.session('POST', '/wda/apps/terminate', { bundleId });
     }
 
@@ -238,7 +283,7 @@ class WDAClient {
     // RESPONSIVE_SETTINGS names for speed. Slow in busy apps: the phone has to work out which
     // app is in front (about 12 s in TikTok) before it reads anything.
     async inFrontApp(fn) {
-        await this.setSettings({ defaultActiveApplication: 'auto' });
+        await this.setSettings({ defaultActiveApplication: this.frontApp || 'auto' });
         try {
             return await fn();
         } finally {
@@ -260,9 +305,13 @@ class WDAClient {
         );
         const { width, height } = this.size || { width: 10000, height: 10000 };
         const out = [];
-        const walk = (node) => {
+        // Views drawn by another process (the share sheet) report their contents relative to
+        // their own corner, not the screen's: on iOS 27 the share sheet's "Save Image" came back
+        // at 48% down while it sits at 91%. Shift those children by the container's position.
+        const walk = (node, ox = 0, oy = 0) => {
             if (!node || typeof node !== 'object') return;
-            const r = node.rect || node.frame || {};
+            const raw = node.rect || node.frame || {};
+            const r = { ...raw, x: (raw.x || 0) + ox, y: (raw.y || 0) + oy };
             const label = String(node.label || node.name || node.value || '').trim();
             const visible =
                 node.isVisible === undefined ||
@@ -284,7 +333,8 @@ class WDAClient {
                     h: Math.round(r.height),
                 });
             }
-            for (const child of node.children || []) walk(child);
+            const remote = /RemoteContainerView/.test(String(node.name || node.label || ''));
+            for (const child of node.children || []) walk(child, remote ? r.x : ox, remote ? r.y : oy);
         };
         walk(tree);
         // Drop duplicates that share a label and position (WDA often nests them).
@@ -295,6 +345,18 @@ class WDAClient {
             seen.add(key);
             return true;
         });
+    }
+
+    // Market's own control app only (controlapp/FBMarketCommands.m). Older builds answer
+    // "unhandled endpoint", which callers treat as "use the Files route instead".
+    /** "authorized" | "limited" | "asking" (the phone is showing the prompt) | "denied" */
+    async photosAccess() {
+        return (await this.request('GET', '/market/photos/access', null, { timeout: 10000 })).value;
+    }
+
+    /** Saves Documents/Market/<name> into Photos, dated now, and removes the copy. */
+    async saveToPhotos(name) {
+        return (await this.request('POST', '/market/photos', { name, remove: true }, { timeout: 200000 })).value;
     }
 
     // Opens a URL or app link (e.g. shareddocuments://…) the way tapping a link would.

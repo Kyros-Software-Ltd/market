@@ -11,7 +11,8 @@ name: Release
 on:
     push:
         branches: [main]
-        paths-ignore: ['**.md', 'LICENSE', 'NOTICE', '.github/**']
+        # controlapp/ is the phones' control app, built by its own job (control-app.yml), not Market.
+        paths-ignore: ['**.md', 'LICENSE', 'NOTICE', '.github/**', 'controlapp/**']
     # Run workflow on the Actions page makes a release from main by hand.
     workflow_dispatch:
 

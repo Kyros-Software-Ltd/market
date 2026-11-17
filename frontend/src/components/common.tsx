@@ -2,8 +2,8 @@
 // Small shared pieces used across pages.
 import { Card, Table } from '@heroui/react';
 import { Bot, Hand, Inbox } from 'lucide-react';
-import type { ReactNode } from 'react';
-import type { Activity, Automation, Device, Param } from '@/lib/api';
+import { type ReactNode, useEffect, useState } from 'react';
+import { type Activity, type Automation, type Device, get, type Param } from '@/lib/api';
 import { actorLabel, ago, statusLabel } from '@/lib/format';
 import { ClaudeCodeIcon } from '@/lib/icons';
 import { Check, SelectField, StatusChip, TextInput } from './ui';
@@ -58,6 +58,18 @@ export function Empty({ icon, title, children }: { icon: ReactNode; title: strin
     );
 }
 
+/** The files in the Media library, for automations that send one to the phone. */
+function useMediaNames(wanted: boolean) {
+    const [names, setNames] = useState<string[]>([]);
+    useEffect(() => {
+        if (!wanted) return;
+        get<{ name: string }[]>('/media')
+            .then((list) => setNames(list.map((m) => m.name)))
+            .catch(() => {});
+    }, [wanted]);
+    return names;
+}
+
 /** Form fields for an automation's parameters. */
 export function ParamsForm({
     automation,
@@ -68,6 +80,7 @@ export function ParamsForm({
     values: Record<string, unknown>;
     onChange: (v: Record<string, unknown>) => void;
 }) {
+    const media = useMediaNames(automation.params.some((p) => p.type === 'media'));
     if (!automation.params.length) return null;
     const set = (key: string, v: unknown) => onChange({ ...values, [key]: v });
     const val = (p: Param) => values[p.key] ?? p.default ?? '';
@@ -81,6 +94,20 @@ export function ParamsForm({
                                 {p.label}
                             </Check>
                         </div>
+                    );
+                }
+                if (p.type === 'media') {
+                    return (
+                        <SelectField
+                            key={p.key}
+                            label={p.label}
+                            value={String(val(p))}
+                            onChange={(v) => set(p.key, v)}
+                            options={[
+                                { key: '', label: 'Newest on the phone' },
+                                ...media.map((n) => ({ key: n, label: n })),
+                            ]}
+                        />
                     );
                 }
                 if (p.type === 'select') {

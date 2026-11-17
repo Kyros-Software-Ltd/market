@@ -99,8 +99,10 @@ function createContext(device, job, control) {
             check();
             return control.elements(device.udid);
         },
+        // Asks the phone for that label (fast); reads the whole screen only if that misses.
         async findText(text) {
-            return findElement(await ctx.elements(), text);
+            check();
+            return (await control.findText(device.udid, text)) || findElement(await ctx.elements(), text);
         },
         async hasText(text) {
             return !!(await ctx.findText(text));
@@ -112,7 +114,7 @@ function createContext(device, job, control) {
                 if (el) return el;
                 if (Date.now() > end)
                     throw new Error(`"${text}" did not appear within ${Math.round(timeoutMs / 1000)}s`);
-                await ctx.sleep(800);
+                await ctx.sleep(300);
             }
         },
         tapText: (text) => act('tapText', { text }),
@@ -126,6 +128,41 @@ function createContext(device, job, control) {
             } finally {
                 await device.client?.applySettings().catch(() => {});
             }
+        },
+        // Where the newest photo or video is in an app's upload picker (see picker.js), as
+        // fractions for tapPct. Pass the Media library name of a photo that was just sent to
+        // also check the tile really is that photo.
+        async newestInPicker({ media: name } = {}) {
+            check();
+            let reference;
+            if (name && /\.(jpe?g|png|webp)$/i.test(name)) {
+                try {
+                    reference = require('./media').filePath(name);
+                } catch {}
+            }
+            const tile = await require('./picker').newestTile(await wda().screenshot(), { reference });
+            ctx.log(
+                `Newest item in the picker: ${Math.round(tile.x * 100)}%, ${Math.round(tile.y * 100)}%` +
+                    (tile.match === undefined ? '' : ` (looks like the sent photo: ${Math.round(tile.match)} off)`),
+            );
+            return tile;
+        },
+        // Saves a file already copied into the control app's Documents/Market into Photos,
+        // without touching the screen. Throws "unhandled endpoint" on stock control apps.
+        async saveToPhotosDirect(name) {
+            check();
+            return wda().saveToPhotos(name);
+        },
+        async photosAccess() {
+            check();
+            return wda().photosAccess();
+        },
+        // Copies files from the Media library into this phone's Photos, dated today, so each is
+        // the newest item in every picker. Names as shown on the Media page.
+        async sendMedia(names) {
+            check();
+            const media = require('./media');
+            await media.sendAutomation.run(ctx, { names, saveToPhotos: true });
         },
         async tapTextIfPresent(text) {
             const el = await ctx.findText(text).catch(() => null);

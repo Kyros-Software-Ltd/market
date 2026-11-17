@@ -13,6 +13,9 @@ const WDA_IPA = path.join(DATA_DIR, 'WDA.ipa');
 const EMBED_PYTHON_URL = 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip';
 const GET_PIP_URL = 'https://bootstrap.pypa.io/get-pip.py';
 const WDA_RELEASE_API = 'https://api.github.com/repos/appium/WebDriverAgent/releases/latest';
+// Market's own build of it, which can also save files into Photos (controlapp/, built by
+// .github/workflows/control-app.yml). The stock build is the fallback.
+const CONTROL_APP_RELEASE_API = 'https://api.github.com/repos/Kyros-Software-Ltd/market/releases/tags/control-app';
 
 const run = (file, args, opts = {}) =>
     new Promise((resolve, reject) => {
@@ -170,7 +173,8 @@ function ensureHelper(onStep = () => {}) {
 // Bump when the packaging changes, so copies built by an older version get rebuilt.
 // 2: file sharing on, shown on the phone as "Market".
 // 4: rebuilt without the screen broadcast extension that version 3 carried.
-const WDA_BUILD_VERSION = 4;
+// 5: Market's own build, with saving straight into Photos.
+const WDA_BUILD_VERSION = 5;
 const WDA_VERSION_FILE = `${WDA_IPA}.version`;
 
 // File sharing lets the app copy photos and videos into the control app over USB and
@@ -187,6 +191,11 @@ function patchInfoPlist(file) {
     set('UIFileSharingEnabled', '<true/>');
     set('LSSupportsOpeningDocumentsInPlace', '<true/>');
     set('CFBundleDisplayName', '<string>Market</string>');
+    // Asked for when saving into Photos; without it iOS ends the app instead of asking.
+    set(
+        'NSPhotoLibraryAddUsageDescription',
+        '<string>Market saves the photos and videos you send from your PC.</string>',
+    );
     fs.writeFileSync(file, xml);
 }
 
@@ -206,11 +215,24 @@ async function buildWdaIpa() {
     state.wdaError = '';
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'wda-'));
     try {
-        const release = await (await fetch(WDA_RELEASE_API, { headers: { 'User-Agent': 'market-app' } })).json();
-        const asset = (release.assets || []).find((a) => a.name === 'WebDriverAgentRunner-Runner.zip');
-        if (!asset)
-            throw new Error('Could not find WebDriverAgentRunner-Runner.zip in the latest WebDriverAgent release');
-        state.wda = `Downloading WebDriverAgent ${release.tag_name}`;
+        const headers = { 'User-Agent': 'market-app' };
+        let asset = null;
+        let label = '';
+        for (const [api, name] of [
+            [CONTROL_APP_RELEASE_API, "Market's control app"],
+            [WDA_RELEASE_API, 'WebDriverAgent'],
+        ]) {
+            const res = await fetch(api, { headers }).catch(() => null);
+            if (!res?.ok) continue;
+            const release = await res.json();
+            asset = (release.assets || []).find((a) => a.name === 'WebDriverAgentRunner-Runner.zip');
+            if (asset) {
+                label = name === 'WebDriverAgent' ? `WebDriverAgent ${release.tag_name}` : name;
+                break;
+            }
+        }
+        if (!asset) throw new Error('Could not find a WebDriverAgentRunner-Runner.zip to download');
+        state.wda = `Downloading ${label}`;
         const zip = await download(asset.browser_download_url, path.join(work, 'wda.zip'));
 
         state.wda = 'Packaging WDA.ipa';

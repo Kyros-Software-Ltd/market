@@ -113,6 +113,10 @@ class Controller {
         return results.map((r) => r.value);
     }
 
+    async findText(udid, text) {
+        return this.enqueue(udid, 'find on screen', () => this.readyClient(udid).findText(text), { drop: false });
+    }
+
     async elements(udid) {
         return this.enqueue(udid, 'read screen', () => this.readyClient(udid).elements(), { drop: false });
     }
@@ -142,8 +146,10 @@ const ACTIONS = {
         ]);
     },
     // Taps the on-screen element whose label best matches `text`.
+    // Taps the on-screen element whose label best matches `text`: asks the phone for that
+    // label first (fast), and reads the whole screen only if that finds nothing.
     tapText: async (w, b) => {
-        const el = findElement(await w.elements(), b.text);
+        const el = (await w.findText(b.text)) || findElement(await w.elements(), b.text);
         if (!el) throw new Error(`Nothing labelled "${b.text}" is on screen`);
         await w.tap(el.x, el.y);
         return el;
@@ -172,6 +178,7 @@ const ACTIONS = {
         const s = shortcuts.find(b.id);
         const url = shortcuts.urlFor(s, b);
         await w.openUrl(url);
+        w.frontApp = s.bundleId;
         if (s.thenTap) {
             await new Promise((r) => setTimeout(r, 1500));
             await w.tap(s.thenTap.x * w.size.width, s.thenTap.y * w.size.height);

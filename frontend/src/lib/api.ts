@@ -47,7 +47,7 @@ export interface Job {
 export interface Param {
     key: string;
     label: string;
-    type: 'text' | 'number' | 'checkbox' | 'select';
+    type: 'text' | 'number' | 'checkbox' | 'select' | 'media';
     default?: unknown;
     options?: string[];
 }

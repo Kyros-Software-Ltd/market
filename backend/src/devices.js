@@ -277,7 +277,6 @@ class DeviceManager {
 
     spawnOptions(device) {
         const { wda: wdaCfg, localPorts } = this.config;
-        const udid = device.udid;
         return {
             ports: { wda: localPorts.wdaBase + device.slot, mjpeg: localPorts.mjpegBase + device.slot },
             devicePorts: this.wdaDevicePorts(),
@@ -309,7 +308,7 @@ class DeviceManager {
             try {
                 await client.status();
                 break;
-            } catch (e) {
+            } catch {
                 if (Date.now() > deadline) throw new Error('The control app did not answer. Keep the phone unlocked.');
                 await sleep(150);
             }
