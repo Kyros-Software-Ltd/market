@@ -1,0 +1,46 @@
+# Builds Market's control app (WebDriverAgent plus controlapp/FBMarketCommands.m) on a Mac and
+# publishes it to the "control-app" pre-release, where Market downloads it (backend/src/setup.js).
+# Pre-releases don't count as the latest release, so this never looks like an app update.
+name: Control app
+
+on:
+    push:
+        paths: ['controlapp/**', '.github/workflows/control-app.yml']
+    workflow_dispatch:
+        inputs:
+            wda_tag:
+                description: 'WebDriverAgent version to build (empty = its latest release)'
+                required: false
+
+permissions:
+    contents: write
+
+concurrency:
+    group: control-app
+
+jobs:
+    build:
+        runs-on: macos-15
+        steps:
+            - uses: actions/checkout@v4
+            - uses: maxim-lobanov/setup-xcode@v1
+              with:
+                  xcode-version: '16.4'
+            - name: Build
+              env:
+                  WDA_TAG: ${{ inputs.wda_tag }}
+                  OUT: ${{ runner.temp }}
+              run: bash controlapp/build.sh
+            - name: Publish to the control-app pre-release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  version="$(cat "$RUNNER_TEMP/wda-version.txt")"
+                  notes="WebDriverAgent $version with Market's save-to-Photos command, built from ${GITHUB_SHA::7}. Market downloads this; it is not an app update."
+                  if ! gh release view control-app >/dev/null 2>&1; then
+                      gh release create control-app --prerelease --target "$GITHUB_SHA" \
+                          --title "Control app" --notes "$notes"
+                  else
+                      gh release edit control-app --notes "$notes"
+                  fi
+                  gh release upload control-app "$RUNNER_TEMP/WebDriverAgentRunner-Runner.zip" --clobber
