@@ -1,7 +1,11 @@
-// Finger-like movement for swipes and drags. A software swipe is a straight line at constant
-// speed with events on a fixed clock; a thumb bows to one side, speeds up or slows down, and
-// the screen samples it about every 16.67 ms. Every engine's client builds its moves from here.
-const FRAME_MS = 1000 / 60;
+// Finger-like movement for swipes and drags: the path bows to one side and speeds up or slows
+// down instead of being a straight line at constant speed.
+//
+// The control app gets slower with every point on the path. Measured on an iPhone XR for a
+// 300 ms swipe: 18 points (one per screen frame) took 4-9 s, 4 points 2 s, 3 points 1.4 s,
+// 1 point 1.2 s. Three points keep the bow and the change of speed for most of that saving.
+const MAX_POINTS = 3;
+const POINT_MS = 100; // shorter moves get fewer points
 
 const rand = (min, max) => min + Math.random() * (max - min);
 
@@ -17,7 +21,7 @@ function humanPath(x1, y1, x2, y2, durationMs, { flick = true } = {}) {
     const dx = x2 - x1;
     const dy = y2 - y1;
     const length = Math.hypot(dx, dy);
-    const steps = Math.max(2, Math.round(durationMs / FRAME_MS));
+    const steps = Math.max(1, Math.min(MAX_POINTS, Math.round(durationMs / POINT_MS)));
 
     const power = rand(1.3, 1.7);
     const ease = flick ? (t) => t ** power : (t) => t * t * (3 - 2 * t);

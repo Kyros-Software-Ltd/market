@@ -129,10 +129,10 @@ function Frame({ children }: { children: ReactNode }) {
                             {children}
                         </div>
                     </div>
+                    {focus && <PhoneControl udid={focus} />}
                 </div>
             </main>
 
-            {focus && <PhoneControl udid={focus} />}
             <TwoFactorDialog />
 
             <Toaster theme="dark" position="bottom-right" richColors closeButton duration={4500} />

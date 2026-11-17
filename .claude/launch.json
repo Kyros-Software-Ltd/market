@@ -11,6 +11,16 @@
       "port": 4100
     },
     {
+      "name": "market-dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/start.js",
+        "--dev",
+        "--hidden"
+      ],
+      "port": 4100
+    },
+    {
       "name": "backend",
       "runtimeExecutable": "node",
       "runtimeArgs": [

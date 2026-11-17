@@ -6,8 +6,6 @@ import {
     Circle,
     CornerDownLeft,
     Lock,
-    PanelLeft,
-    PanelRight,
     Pencil,
     Send,
     Square,
@@ -16,6 +14,7 @@ import {
     Volume2,
     X,
 } from 'lucide-react';
+import { DeviceFrame } from '@/components/DeviceFrame';
 // Full-size control of one phone: click = tap, drag = swipe, hold = long-press (sent as soon as
 // you've held still for HOLD_MS), hold then drag = drag (moving an app icon), wheel = scroll.
 // With the panel open, the PC keyboard types into the focused field on the phone.
@@ -46,26 +45,7 @@ interface Press {
 const HOLD_MS = 500;
 const STILL_PX = 12; // a hand on a mouse wobbles a little; this much still counts as holding still
 
-// Which side the panel docks to; remembered between visits.
-function useDockSide() {
-    const [side, setSide] = useState<'left' | 'right'>('right');
-    useEffect(() => {
-        try {
-            if (localStorage.getItem('market.dock') === 'left') setSide('left');
-        } catch {}
-    }, []);
-    const flip = () => {
-        const next = side === 'right' ? 'left' : 'right';
-        setSide(next);
-        try {
-            localStorage.setItem('market.dock', next);
-        } catch {}
-    };
-    return [side, flip] as const;
-}
-
 export function PhoneControl({ udid }: { udid: string }) {
-    const [side, flipSide] = useDockSide();
     const { status, setFocus, toast } = useStore();
     const act = useAction();
     const ask = usePrompt();
@@ -77,7 +57,6 @@ export function PhoneControl({ udid }: { udid: string }) {
     const [mirror, setMirror] = useState(false);
     const [fps, setFps] = useState<number | null>(null);
     const [text, setText] = useState('');
-    const [submit, setSubmit] = useState(false);
     const [apps, setApps] = useState<{ bundleId: string; name: string }[]>([]);
     const [logs, setLogs] = useState<string[]>([]);
     const [rec, setRec] = useState<{ steps: Step[]; last: number } | null>(null);
@@ -106,7 +85,7 @@ export function PhoneControl({ udid }: { udid: string }) {
     // Defined early so the keyboard listener can call it; body filled below once helpers exist.
     const sendRef = useRef<(action: string, args?: Record<string, unknown>) => void>(() => {});
 
-    // PC keyboard → phone when the dock is open (and you're not typing in a Market field).
+    // PC keyboard → phone when the control view is open (and you're not typing in a Market field).
     useEffect(() => {
         if (!ready) return;
         let pending = '';
@@ -175,8 +154,7 @@ export function PhoneControl({ udid }: { udid: string }) {
 
     if (!device) return null;
 
-    const others = () =>
-        status.devices.filter((d) => d.udid !== udid && d.status === 'ready').map((d) => d.udid);
+    const others = () => status.devices.filter((d) => d.udid !== udid && d.status === 'ready').map((d) => d.udid);
     const targets = () => (mirror ? [udid, ...others()] : [udid]);
 
     // Each action you do while recording becomes a step, with the pause before it kept as a wait.
@@ -364,41 +342,45 @@ export function PhoneControl({ udid }: { udid: string }) {
         a.click();
     }
 
+    // One button, and Enter does the same: with text in the box it types that text on the
+    // phone; with the box empty it presses Return there (search, send, new line).
     function sendText() {
-        if (!text) return;
-        send('type', { text, submit });
+        if (text) send('type', { text });
+        else send('type', { text: '', submit: true });
         setText('');
     }
 
     return (
-        <aside className={`dock ${side}`}>
+        <aside className="dock">
             <div className="dock-body">
-                <div className="control-screen dark" data-theme="dark" ref={screenRef} onWheel={onWheel}>
-                    {ready ? (
-                        <LiveScreen
-                            ref={imgRef}
-                            udid={device.udid}
-                            engine={device.engine}
-                            profile="focus"
-                            onFps={setFps}
-                            onMouseDown={onDown}
-                            onMouseMove={onMove}
-                            onMouseUp={onUp}
-                            onMouseLeave={(e) => {
-                                if (press.current) onUp(e);
-                            }}
-                        />
-                    ) : (
-                        <PhoneState device={device} />
-                    )}
-                    {ready && <FpsChip fps={fps} />}
-                    {rec && (
-                        <div className="rec">
-                            <Circle size={8} fill="currentColor" />
-                            REC · {recCount}
-                        </div>
-                    )}
-                </div>
+                <DeviceFrame device={device}>
+                    <div className="control-screen dark" data-theme="dark" ref={screenRef} onWheel={onWheel}>
+                        {ready ? (
+                            <LiveScreen
+                                ref={imgRef}
+                                udid={device.udid}
+                                engine={device.engine}
+                                profile="focus"
+                                onFps={setFps}
+                                onMouseDown={onDown}
+                                onMouseMove={onMove}
+                                onMouseUp={onUp}
+                                onMouseLeave={(e) => {
+                                    if (press.current) onUp(e);
+                                }}
+                            />
+                        ) : (
+                            <PhoneState device={device} />
+                        )}
+                        {ready && <FpsChip fps={fps} />}
+                        {rec && (
+                            <div className="rec">
+                                <Circle size={8} fill="currentColor" />
+                                REC · {recCount}
+                            </div>
+                        )}
+                    </div>
+                </DeviceFrame>
 
                 <div className="control-side">
                     <div className="dock-head">
@@ -414,15 +396,6 @@ export function PhoneControl({ udid }: { udid: string }) {
                             </div>
                         </div>
                         <StatusBadge device={device} />
-                        <Button
-                            isIconOnly
-                            size="sm"
-                            variant="ghost"
-                            aria-label={side === 'right' ? 'Move panel to the left' : 'Move panel to the right'}
-                            onPress={flipSide}
-                        >
-                            {side === 'right' ? <PanelLeft size={16} /> : <PanelRight size={16} />}
-                        </Button>
                         <Button isIconOnly size="sm" variant="ghost" aria-label="Close" onPress={close}>
                             <X size={16} />
                         </Button>
@@ -454,29 +427,19 @@ export function PhoneControl({ udid }: { udid: string }) {
                         <TextInput
                             value={text}
                             onChange={setText}
-                            placeholder={ready ? 'Type here or use your keyboard…' : 'Phone not ready'}
+                            placeholder={ready ? 'Type, then Enter. Enter again for Return' : 'Phone not ready'}
                             isDisabled={!ready}
                             onEnter={sendText}
                         />
                         <Button
                             isIconOnly
                             size="md"
-                            variant={submit ? 'primary' : 'secondary'}
-                            aria-label={submit ? 'Return after send is on' : 'Return after send is off'}
-                            onPress={() => setSubmit(!submit)}
+                            variant={text ? 'primary' : 'secondary'}
+                            aria-label={text ? 'Type this on the phone' : 'Press Return on the phone'}
+                            onPress={sendText}
                             isDisabled={!ready}
                         >
-                            <CornerDownLeft size={15} />
-                        </Button>
-                        <Button
-                            isIconOnly
-                            size="md"
-                            variant="primary"
-                            aria-label="Send text to phone"
-                            onPress={sendText}
-                            isDisabled={!ready || !text}
-                        >
-                            <Send size={15} />
+                            {text ? <Send size={15} /> : <CornerDownLeft size={15} />}
                         </Button>
                     </div>
 
@@ -511,9 +474,7 @@ export function PhoneControl({ udid }: { udid: string }) {
                         <summary>More</summary>
                         <div className="col" style={{ gap: 16 }}>
                             <div className="row">
-                                <span className="grow">
-                                    Mirror to other ready phones ({others().length})
-                                </span>
+                                <span className="grow">Mirror to other ready phones ({others().length})</span>
                                 <Toggle
                                     isSelected={mirror}
                                     onChange={setMirror}

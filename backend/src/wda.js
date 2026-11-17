@@ -136,7 +136,7 @@ class WDAClient {
         ]);
     }
 
-    // One pointerMove per screen frame along a finger-like path (see touch-path.js).
+    // A few pointerMoves along a finger-like path (see touch-path.js for why so few).
     moves(x1, y1, x2, y2, durationMs, opts) {
         return humanPath(x1, y1, x2, y2, durationMs, opts).map((p) => ({
             type: 'pointerMove',

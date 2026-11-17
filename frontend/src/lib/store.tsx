@@ -104,7 +104,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const page = pageFromPath(pathname || '/');
-    const go = useCallback((p: Page) => router.push(PAGE_PATH[p]), [router]);
+    const go = useCallback(
+        (p: Page) => {
+            setFocus(null); // the phone control view covers the page, so leave it
+            router.push(PAGE_PATH[p]);
+        },
+        [router],
+    );
 
     const value = useMemo<Store>(
         () => ({
