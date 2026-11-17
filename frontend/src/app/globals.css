@@ -1624,22 +1624,66 @@ main {
         inset 0 0 0 0.7cqw #101012;
 }
 
-/* side buttons: mute switch and volume on the left, power on the right */
+/* side buttons: mute switch and volume on the left, power on the right.
+   Same metal as the rim. Volume and power are real controls; the extra hit area is invisible. */
 .device-btn {
     position: absolute;
-    width: 0.75cqw;
+    width: 1.15cqw;
     background: var(--metal);
     pointer-events: none;
+    transition: transform 150ms var(--press);
 }
 .device-btn.mute,
 .device-btn.vol-up,
 .device-btn.vol-down {
-    right: calc(100% - 0.1cqw);
+    right: calc(100% - 0.12cqw);
     border-radius: 0.5cqw 0 0 0.5cqw;
 }
 .device-btn.power {
-    left: calc(100% - 0.1cqw);
+    left: calc(100% - 0.12cqw);
     border-radius: 0 0.5cqw 0.5cqw 0;
+}
+button.device-btn {
+    pointer-events: auto;
+    cursor: pointer;
+    appearance: none;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+    min-height: 0;
+    font: inherit;
+    color: inherit;
+    touch-action: none;
+}
+button.device-btn::before {
+    content: '';
+    position: absolute;
+    top: -0.4cqw;
+    bottom: -0.4cqw;
+}
+button.device-btn.vol-up::before,
+button.device-btn.vol-down::before {
+    left: -14px;
+    width: calc(100% + 14px);
+}
+button.device-btn.power::before {
+    left: 0;
+    width: calc(100% + 14px);
+}
+.device-btn.vol-up.down,
+.device-btn.vol-down.down,
+.device-btn.vol-up:active,
+.device-btn.vol-down:active {
+    transform: translateX(0.28cqw);
+}
+.device-btn.power.down,
+.device-btn.power:active {
+    transform: translateX(-0.28cqw);
+}
+button.device-btn:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
 }
 .device-btn.mute {
     top: 30cqw;
@@ -1738,6 +1782,9 @@ main {
 @media (prefers-reduced-motion: reduce) {
     .dock {
         animation: none;
+    }
+    .device-btn {
+        transition: none;
     }
 }
 

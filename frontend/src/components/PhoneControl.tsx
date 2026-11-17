@@ -14,7 +14,7 @@ import {
     Volume2,
     X,
 } from 'lucide-react';
-import { DeviceFrame } from '@/components/DeviceFrame';
+import { DeviceFrame, type HardwareButton } from '@/components/DeviceFrame';
 // Full-size control of one phone: click = tap, drag = swipe, hold = long-press (sent as soon as
 // you've held still for HOLD_MS), hold then drag = drag (moving an app icon), wheel = scroll.
 // With the panel open, the PC keyboard types into the focused field on the phone.
@@ -54,6 +54,11 @@ export function PhoneControl({ udid }: { udid: string }) {
     const screenRef = useRef<HTMLDivElement>(null);
     const press = useRef<Press | null>(null);
     const wheelAt = useRef(0);
+    const sideHold = useRef<{ stop: boolean; timer: ReturnType<typeof setTimeout> | null; wake: (() => void) | null }>({
+        stop: true,
+        timer: null,
+        wake: null,
+    });
     const [mirror, setMirror] = useState(false);
     const [fps, setFps] = useState<number | null>(null);
     const [text, setText] = useState('');
@@ -64,6 +69,15 @@ export function PhoneControl({ udid }: { udid: string }) {
     recRef.current = rec;
 
     const ready = device?.status === 'ready';
+
+    useEffect(
+        () => () => {
+            sideHold.current.stop = true;
+            if (sideHold.current.timer) clearTimeout(sideHold.current.timer);
+            sideHold.current.wake?.();
+        },
+        [],
+    );
 
     useEffect(() => {
         if (ready)
@@ -189,9 +203,49 @@ export function PhoneControl({ udid }: { udid: string }) {
 
     function send(action: string, args: Step = {}) {
         record(action, args);
-        control(action, targets(), args).catch((e: Error) => toast(e.message, true));
+        return control(action, targets(), args).then(
+            () => true,
+            (e: Error) => {
+                toast(e.message, true);
+                return false;
+            },
+        );
     }
     sendRef.current = send;
+
+    // Side buttons: a click is one press, holding volume keeps stepping until you let go.
+    function releaseHardware() {
+        const hold = sideHold.current;
+        hold.stop = true;
+        if (hold.timer) clearTimeout(hold.timer);
+        hold.timer = null;
+        hold.wake?.();
+        hold.wake = null;
+    }
+    function pressHardware(button: HardwareButton, phase: 'down' | 'up') {
+        releaseHardware();
+        if (phase === 'up' || button === 'power') {
+            if (phase === 'down') void send('lock');
+            return;
+        }
+        const token = {
+            stop: false,
+            timer: null as ReturnType<typeof setTimeout> | null,
+            wake: null as (() => void) | null,
+        };
+        sideHold.current = token;
+        const action = button === 'vol-up' ? 'volumeUp' : 'volumeDown';
+        void (async () => {
+            while (!token.stop) {
+                const ok = await send(action);
+                if (token.stop || !ok) return;
+                await new Promise<void>((resolve) => {
+                    token.wake = resolve;
+                    token.timer = setTimeout(resolve, 280);
+                });
+            }
+        })();
+    }
 
     // Mouse position as 0-1 fractions of the phone screen, allowing for letterboxing.
     function toFraction(e: { clientX: number; clientY: number }) {
@@ -353,7 +407,7 @@ export function PhoneControl({ udid }: { udid: string }) {
     return (
         <aside className="dock">
             <div className="dock-body">
-                <DeviceFrame device={device}>
+                <DeviceFrame device={device} onHardware={ready ? pressHardware : undefined}>
                     <div className="control-screen dark" data-theme="dark" ref={screenRef} onWheel={onWheel}>
                         {ready ? (
                             <LiveScreen

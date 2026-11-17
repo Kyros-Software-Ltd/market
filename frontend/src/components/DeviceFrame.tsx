@@ -2,11 +2,22 @@
 // Draws the phone's body around its live screen: metal rim, glass edge, corner radius, notch or
 // Dynamic Island or home button, and the side buttons, all picked from the phone's model
 // (lib/phoneFrame.ts).
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, PointerEvent as RPointerEvent, ReactNode } from 'react';
 import type { Device } from '@/lib/api';
 import { frameFor } from '@/lib/phoneFrame';
 
-export function DeviceFrame({ device, children }: { device: Device; children: ReactNode }) {
+export type HardwareButton = 'vol-up' | 'vol-down' | 'power';
+
+export function DeviceFrame({
+    device,
+    children,
+    onHardware,
+}: {
+    device: Device;
+    children: ReactNode;
+    /** Volume repeats while held; power locks on press. Omit to keep the buttons decorative. */
+    onHardware?: (button: HardwareButton, phase: 'down' | 'up') => void;
+}) {
     const spec = frameFor(device.model);
     const size = device.size;
     const ratio = size?.width && size?.height ? size.width / size.height : spec.ratio;
@@ -31,9 +42,9 @@ export function DeviceFrame({ device, children }: { device: Device; children: Re
     return (
         <div className={`device ${spec.kind}`} style={style}>
             <span className="device-btn mute" />
-            <span className="device-btn vol-up" />
-            <span className="device-btn vol-down" />
-            <span className="device-btn power" />
+            <HardwareKey id="vol-up" label="Volume up" className="device-btn vol-up" onHardware={onHardware} />
+            <HardwareKey id="vol-down" label="Volume down" className="device-btn vol-down" onHardware={onHardware} />
+            <HardwareKey id="power" label="Power" className="device-btn power" onHardware={onHardware} />
             <div className="device-body">
                 {spec.kind === 'home' && (
                     <span className="device-forehead">
@@ -58,5 +69,56 @@ export function DeviceFrame({ device, children }: { device: Device; children: Re
                 {spec.kind === 'home' && <span className="device-home" />}
             </div>
         </div>
+    );
+}
+
+function HardwareKey({
+    id,
+    label,
+    className,
+    onHardware,
+}: {
+    id: HardwareButton;
+    label: string;
+    className: string;
+    onHardware?: (button: HardwareButton, phase: 'down' | 'up') => void;
+}) {
+    if (!onHardware) return <span className={className} />;
+
+    const down = (el: HTMLButtonElement) => {
+        if (el.classList.contains('down')) return;
+        el.classList.add('down');
+        onHardware(id, 'down');
+    };
+    const up = (el: HTMLButtonElement) => {
+        if (!el.classList.contains('down')) return;
+        el.classList.remove('down');
+        onHardware(id, 'up');
+    };
+
+    return (
+        <button
+            type="button"
+            className={className}
+            aria-label={label}
+            onPointerDown={(e: RPointerEvent<HTMLButtonElement>) => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                e.currentTarget.setPointerCapture(e.pointerId);
+                down(e.currentTarget);
+            }}
+            onPointerUp={(e) => up(e.currentTarget)}
+            onPointerCancel={(e) => up(e.currentTarget)}
+            onKeyDown={(e) => {
+                if (e.repeat) return;
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                down(e.currentTarget);
+            }}
+            onKeyUp={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') up(e.currentTarget);
+            }}
+            onBlur={(e) => up(e.currentTarget)}
+        />
     );
 }
