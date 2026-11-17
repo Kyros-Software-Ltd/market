@@ -1,11 +1,13 @@
 # Builds Market's control app (WebDriverAgent plus controlapp/FBMarketCommands.m) on a Mac and
 # publishes it to the "control-app" pre-release, where Market downloads it (backend/src/setup.js).
 # Pre-releases don't count as the latest release, so this never looks like an app update.
+# It only runs when the control app's own code in controlapp/ changes, or by hand from the
+# Actions page (Run workflow); any other push leaves the published build as it is.
 name: Control app
 
 on:
     push:
-        paths: ['controlapp/**', '.github/workflows/control-app.yml']
+        paths: ['controlapp/**']
     workflow_dispatch:
         inputs:
             wda_tag:
