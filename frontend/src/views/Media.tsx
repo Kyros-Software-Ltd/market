@@ -1,9 +1,9 @@
 'use client';
 import { Button, Card, Table } from '@heroui/react';
-import { Film, FolderOpen, Image as ImageIcon, Send, Trash2, Upload } from 'lucide-react';
+import { Film, FolderOpen, Image as ImageIcon, Inbox, Send, Trash2, Upload } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Empty, EmptyCard, PhonePicker, TableSection } from '@/components/common';
-import { Check, Panel, Toggle } from '@/components/ui';
+import { Check, Panel, TextInput } from '@/components/ui';
 import { del, get, type MediaItem, mediaUrl, post, uploadMedia } from '@/lib/api';
 import { ago, bytes } from '@/lib/format';
 import { useAction, useStore } from '@/lib/store';
@@ -14,7 +14,7 @@ export function MediaPage() {
     const [items, setItems] = useState<MediaItem[]>([]);
     const [picked, setPicked] = useState<string[]>([]);
     const [phones, setPhones] = useState<string[]>([]);
-    const [toPhotos, setToPhotos] = useState(true);
+    const [caption, setCaption] = useState('');
     const [over, setOver] = useState(false);
     const [uploading, setUploading] = useState(0);
     const input = useRef<HTMLInputElement>(null);
@@ -47,14 +47,36 @@ export function MediaPage() {
     const toggle = (name: string, on = !picked.includes(name)) =>
         setPicked((p) => (on ? [...p.filter((n) => n !== name), name] : p.filter((n) => n !== name)));
 
-    async function send() {
-        const jobs = await act(() =>
-            post<unknown[]>('/media/send', { names: picked, udids: phones, saveToPhotos: toPhotos }),
-        );
+    // What the ticked files make: one video, or photos as a carousel in the order ticked.
+    const pickedItems = picked.map((n) => items.find((m) => m.name === n)).filter(Boolean) as MediaItem[];
+    const videos = pickedItems.filter((m) => m.type === 'video').length;
+    const postProblem = !picked.length
+        ? 'Tick a video, or the photos for a carousel'
+        : videos && picked.length > 1
+          ? 'One video on its own, or only photos'
+          : picked.length > 12
+            ? 'Up to 12 photos per carousel'
+            : '';
+    const what = videos
+        ? 'Video'
+        : picked.length > 1
+          ? `Carousel · ${picked.length} photos, in the order ticked`
+          : 'Photo';
+    const phoneCount = `${phones.length} phone${phones.length === 1 ? '' : 's'}`;
+
+    async function postTo(finish: 'post' | 'drafts') {
+        const jobs = await act(() => post<unknown[]>('/media/post', { names: picked, udids: phones, caption, finish }));
         if (jobs)
             toast(
-                `Sending ${picked.length} file${picked.length === 1 ? '' : 's'} to ${phones.length} phone${phones.length === 1 ? '' : 's'}`,
+                finish === 'post' ? `Posting to TikTok on ${phoneCount}` : `Saving to TikTok drafts on ${phoneCount}`,
             );
+    }
+
+    async function send() {
+        const jobs = await act(() =>
+            post<unknown[]>('/media/send', { names: picked, udids: phones, saveToPhotos: true }),
+        );
+        if (jobs) toast(`Sending ${picked.length} file${picked.length === 1 ? '' : 's'} to Photos on ${phoneCount}`);
     }
 
     async function remove(name: string) {
@@ -64,7 +86,9 @@ export function MediaPage() {
         load();
     }
 
-    const sends = status.jobs.filter((j) => j.automationId === 'send-media').slice(0, 8);
+    const sends = status.jobs
+        .filter((j) => j.automationId === 'send-media' || j.automationId === 'post-tiktok')
+        .slice(0, 8);
 
     return (
         <>
@@ -142,6 +166,9 @@ export function MediaPage() {
                                             onChange={(v) => toggle(m.name, v)}
                                         />
                                     </div>
+                                    {picked.includes(m.name) && (
+                                        <span className="media-order">{picked.indexOf(m.name) + 1}</span>
+                                    )}
                                     <span className="media-kind pill" style={{ height: 20, padding: '0 6px' }}>
                                         {m.type === 'video' ? <Film size={12} /> : <ImageIcon size={12} />}
                                     </span>
@@ -177,13 +204,16 @@ export function MediaPage() {
                 </div>
 
                 <div className="stack">
-                    <Panel title="Send to phones" icon={<Send size={14} />}>
+                    <Panel title="Post to TikTok" icon={<Send size={14} />}>
                         <div className="col" style={{ gap: 18 }}>
                             <div className="row">
                                 <span className="grow">
-                                    {picked.length
-                                        ? `${picked.length} file${picked.length === 1 ? '' : 's'} selected`
-                                        : 'Select files on the left'}
+                                    {picked.length ? what : 'Tick files on the left'}
+                                    {postProblem && picked.length > 0 && (
+                                        <div className="small" style={{ color: 'var(--danger)' }}>
+                                            {postProblem}
+                                        </div>
+                                    )}
                                 </span>
                                 {picked.length > 0 && (
                                     <Button size="sm" variant="ghost" onPress={() => setPicked([])}>
@@ -191,38 +221,53 @@ export function MediaPage() {
                                     </Button>
                                 )}
                             </div>
+                            <TextInput
+                                label="Caption"
+                                value={caption}
+                                onChange={setCaption}
+                                placeholder="Words and #hashtags"
+                            />
                             <div>
                                 <div className="field-label">Phones</div>
                                 <PhonePicker devices={status.devices} value={phones} onChange={setPhones} />
                             </div>
-                            <div className="row">
-                                <div className="grow">
-                                    <div style={{ fontWeight: 500 }}>Save to Photos</div>
-                                    <div className="small muted">
-                                        Off: files only go to Files → On My iPhone → Market
-                                    </div>
-                                </div>
-                                <Toggle isSelected={toPhotos} onChange={setToPhotos} label="Save to Photos" />
+                            <div className="pair">
+                                <Button
+                                    variant="primary"
+                                    isDisabled={!!postProblem || !phones.length}
+                                    onPress={() => postTo('post')}
+                                >
+                                    <Send size={15} />
+                                    Post
+                                </Button>
+                                <Button
+                                    variant="secondary"
+                                    isDisabled={!!postProblem || !phones.length}
+                                    onPress={() => postTo('drafts')}
+                                >
+                                    <Inbox size={15} />
+                                    Save to Drafts
+                                </Button>
                             </div>
                             <Button
-                                variant="primary"
-                                fullWidth
+                                variant="ghost"
+                                size="sm"
                                 isDisabled={!picked.length || !phones.length}
                                 onPress={send}
                             >
-                                <Send size={15} />
-                                Send
+                                Just send to Photos
                             </Button>
                         </div>
                     </Panel>
 
-                    <TableSection title="Recent sends" icon={<Send size={14} />}>
+                    <TableSection title="Recent" icon={<Send size={14} />}>
                         {sends.length ? (
                             <Table>
                                 <Table.ScrollContainer>
-                                    <Table.Content aria-label="Recent sends">
+                                    <Table.Content aria-label="Recent posts and sends">
                                         <Table.Header>
                                             <Table.Column isRowHeader>Phone</Table.Column>
+                                            <Table.Column>What</Table.Column>
                                             <Table.Column>Result</Table.Column>
                                             <Table.Column>When</Table.Column>
                                         </Table.Header>
@@ -235,6 +280,11 @@ export function MediaPage() {
                                                                 className={`dot ${j.status} ${j.status === 'running' ? 'pulse' : ''}`}
                                                             />
                                                             {j.deviceName}
+                                                        </span>
+                                                    </Table.Cell>
+                                                    <Table.Cell>
+                                                        <span className="small">
+                                                            {j.automationId === 'post-tiktok' ? 'TikTok post' : 'Send'}
                                                         </span>
                                                     </Table.Cell>
                                                     <Table.Cell>
@@ -252,7 +302,7 @@ export function MediaPage() {
                                 </Table.ScrollContainer>
                             </Table>
                         ) : (
-                            <EmptyCard icon={<Send />} title="Nothing sent yet" />
+                            <EmptyCard icon={<Send />} title="Nothing posted or sent yet" />
                         )}
                     </TableSection>
                 </div>

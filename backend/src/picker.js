@@ -44,6 +44,21 @@ function stats(data) {
     return { mean, sd: Math.sqrt(v) };
 }
 
+// The sent photo, cropped the way a picker tile shows it: the centre square (tiles are square,
+// aspect-filled), then the same inset the tile reading uses, so like is compared with like.
+const INSET = 0.18;
+async function referenceThumb(file) {
+    const { width, height } = await sharp(file).rotate().metadata();
+    const side = Math.min(width, height);
+    const cut = side * INSET;
+    return thumb(await sharp(file).rotate().toBuffer(), {
+        left: Math.round((width - side) / 2 + cut),
+        top: Math.round((height - side) / 2 + cut),
+        width: Math.round(side - 2 * cut),
+        height: Math.round(side - 2 * cut),
+    });
+}
+
 const distance = (a, b) => {
     let d = 0;
     for (let i = 0; i < a.length; i++) d += Math.abs(a[i] - b[i]);
@@ -64,7 +79,7 @@ async function newestTile(png, { gridBottom = 0.897, columns = 3, reference } = 
     const tile = pw / columns;
     const bottom = gridBottom * ph;
     const bg = await background(img, pw, ph);
-    const ref = reference ? await thumb(reference) : null;
+    const ref = reference ? await referenceThumb(reference) : null;
 
     // Newest first: last row right to left, then the row above.
     const candidates = [];
@@ -73,7 +88,7 @@ async function newestTile(png, { gridBottom = 0.897, columns = 3, reference } = 
         if (top < ph * 0.15) break;
         for (let col = columns - 1; col >= 0; col--) {
             // Inset so the selection circle, the duration label and the gaps don't count.
-            const inset = tile * 0.18;
+            const inset = tile * INSET;
             const region = {
                 left: Math.round(col * tile + inset),
                 top: Math.round(top + inset),
@@ -103,4 +118,56 @@ async function newestTile(png, { gridBottom = 0.897, columns = 3, reference } = 
     return { ...pick, checked: candidates.length };
 }
 
-module.exports = { newestTile };
+/**
+ * The newest `count` tiles, oldest of them first (the order they were saved, so the order a
+ * carousel should be ticked in), with where to tap each one's select circle.
+ * references: paths of the photos that were sent, in the same order, to check each tile.
+ * @returns {Promise<Array<{ x, y, circle: { x, y }, match?: number }>>} fractions of the screen
+ */
+async function newestTiles(png, { count, gridBottom = 0.897, columns = 3, references = [] } = {}) {
+    const buf = Buffer.from(png, 'base64');
+    const img = sharp(buf);
+    const { width: pw, height: ph } = await img.metadata();
+    const tile = pw / columns;
+    const bottom = gridBottom * ph;
+    const bg = await background(img, pw, ph);
+
+    // Newest first: last row right to left, then the rows above, until enough are found.
+    const found = [];
+    for (let row = 0; found.length < count; row++) {
+        const top = bottom - tile * (row + 1);
+        if (top < ph * 0.17) break; // under the tabs: would need scrolling
+        for (let col = columns - 1; col >= 0 && found.length < count; col--) {
+            const inset = tile * INSET;
+            const t = await thumb(buf, {
+                left: Math.round(col * tile + inset),
+                top: Math.round(top + inset),
+                width: Math.round(tile - 2 * inset),
+                height: Math.round(tile - 2 * inset),
+            });
+            const { mean, sd } = stats(t);
+            if (sd < 6 && mean.every((m, c) => Math.abs(m - bg[c]) < 18)) continue; // empty slot
+            found.push({
+                x: (col * tile + tile / 2) / pw,
+                y: (top + tile / 2) / ph,
+                // The select circle sits in each tile's top-right corner.
+                circle: { x: (col * tile + tile * 0.87) / pw, y: (top + tile * 0.13) / ph },
+                thumb: t,
+            });
+        }
+    }
+    if (found.length < count)
+        throw new Error(`Only ${found.length} of the ${count} newest items fit on the picker's screen`);
+    const tiles = found.reverse(); // oldest of them first
+    for (const [i, ref] of references.entries()) {
+        if (!ref || !tiles[i]) continue;
+        tiles[i].match = distance(tiles[i].thumb, await referenceThumb(ref));
+        if (tiles[i].match > MAX_MISMATCH)
+            throw new Error(
+                `Picker tile ${i + 1} doesn't look like photo ${i + 1} that was sent (differs by ${Math.round(tiles[i].match)})`,
+            );
+    }
+    return tiles.map(({ thumb: _t, ...rest }) => rest);
+}
+
+module.exports = { newestTile, newestTiles };

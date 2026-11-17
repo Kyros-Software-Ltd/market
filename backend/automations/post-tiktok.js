@@ -1,21 +1,26 @@
-// Post to TikTok: sends a photo or video from the Media library into the phone's Photos
-// (dated today, so it is the newest item), then uploads it through TikTok's own screens with a
-// caption and posts it, or saves it to Drafts.
+// Post to TikTok: one video, or several photos as a carousel (in the order given), with a caption.
+// Sends the files from the Media library into the phone's Photos first (dated now, so they are
+// the newest items), then uploads them through TikTok's own screens, then posts or saves to Drafts.
+// The easy way to run it is the Media page: tick files, write the caption, press Post.
 //
-// How it finds the right file: TikTok's upload picker lists Photos oldest first and opens at
-// the bottom, so the newest item is the last tile, and where that is depends on how many items
-// the phone has. ctx.newestInPicker() finds it on the screenshot, and for photos also checks it
-// looks like the file that was sent. Leave "Media" empty to post whatever is newest already.
+// How it finds the right files: TikTok's upload picker lists Photos oldest first and opens at
+// the bottom, so what was just sent is the last tiles, in the order sent. Where they sit depends
+// on how many items the phone has, so they're found on the screenshot (picker.js), and photos
+// are checked against the files that were sent before anything is tapped.
 //
 // Screens, as mapped on iOS 27 with TikTok 47:
-//   camera (snssdk1233://openRecord) → Upload → Videos/Photos tab → newest tile (opens a preview)
-//   → Next → edit screen → Next (never "Your Story": that posts a story straight away)
-//   → caption screen, then Post or Drafts. Videos get "Add description...", photos get
-//   "Add a catchy title" and a longer description box.
+//   camera (snssdk1233://openRecord) → Upload → Videos/Photos tab
+//   one video:  tap it (opens a preview) → Next
+//   carousel:   tick each photo's circle in order → Next
+//   → edit screen → Next (never "Your Story": that posts a story straight away)
+//   → caption screen → Post or Drafts.
 
 const TIKTOK = 'com.zhiliaoapp.musically';
 // The caption box's placeholder, by layout; the first one found is used.
 const DESCRIPTION = ['Add description', 'Writing a long description', 'description'];
+const MAX_PHOTOS = 12; // what fits on the picker's screen without scrolling
+const isVideo = (name) => /\.(mp4|mov|m4v)$/i.test(name);
+
 // Waits up to ms for a label; the element, or null if it never showed.
 const waitFor = (ctx, text, ms) =>
     ctx.waitForText(text, ms).catch((e) => {
@@ -23,38 +28,35 @@ const waitFor = (ctx, text, ms) =>
         return null;
     });
 
+// The Media page sends a list; the Automations form sends one name, or one per line.
+const mediaList = (value) =>
+    (Array.isArray(value) ? value : String(value || '').split(/\r?\n/))
+        .map((n) => String(n).trim())
+        .filter(Boolean);
+
 module.exports = {
     name: 'Post to TikTok',
-    description: 'Sends a photo or video to the phone, then uploads it to TikTok with a caption.',
+    description: 'One video, or several photos as a carousel, from the Media library, with a caption.',
     params: [
-        {
-            key: 'media',
-            label: 'Media (from the Media library; empty = newest on the phone)',
-            type: 'media',
-            default: '',
-        },
-        {
-            key: 'kind',
-            label: 'Type (when Media is empty)',
-            type: 'select',
-            options: ['video', 'photo'],
-            default: 'video',
-        },
+        { key: 'media', label: 'Media (one video, or photos for a carousel)', type: 'media', default: '' },
         { key: 'caption', label: 'Caption (hashtags included)', type: 'text', default: '' },
         { key: 'finish', label: 'When done', type: 'select', options: ['post', 'drafts'], default: 'post' },
         { key: 'startDelayMax', label: 'Random start delay up to (s)', type: 'number', default: 0 },
     ],
 
     async run(ctx, p) {
-        if (p.startDelayMax > 0) await ctx.sleepRandom(0, p.startDelayMax * 1000);
+        const names = mediaList(p.media);
+        if (!names.length) throw new Error('Pick a video, or the photos for a carousel');
+        const videos = names.filter(isVideo);
+        if (videos.length && names.length > 1)
+            throw new Error('Post one video on its own, or only photos for a carousel');
+        if (names.length > MAX_PHOTOS) throw new Error(`Up to ${MAX_PHOTOS} photos per carousel for now`);
+        const kind = videos.length ? 'video' : 'photo';
+        const carousel = kind === 'photo' && names.length > 1;
 
-        const media = String(p.media || '').trim();
-        let kind = p.kind === 'photo' ? 'photo' : 'video';
-        if (media) {
-            if (/\.(jpe?g|png|heic|gif|webp)$/i.test(media)) kind = 'photo';
-            if (/\.(mp4|mov|m4v)$/i.test(media)) kind = 'video';
-            await ctx.sendMedia([media]);
-        }
+        if (p.startDelayMax > 0) await ctx.sleepRandom(0, p.startDelayMax * 1000);
+        // One at a time and in order, so they're dated in order and sit in the picker that way.
+        await ctx.sendMedia(names);
 
         // Start from a fresh TikTok so no half-finished upload from earlier is in the way.
         await ctx.terminate(TIKTOK).catch(() => {});
@@ -74,22 +76,30 @@ module.exports = {
         await ctx.tapText(tab);
         await ctx.sleepRandom(1000, 1400);
 
-        const tile = await ctx.newestInPicker({ media });
-        await ctx.tapPct(tile.x, tile.y);
-
-        // Preview, then the edit screen. Match "Next" exactly so "Your Story" is never tapped.
-        await ctx.waitForText('Next', 20000);
-        await ctx.tapText('Next');
-        ctx.log('Next on the preview');
+        const tiles = await ctx.newestInPickerMany(names);
+        if (carousel) {
+            ctx.log(`Ticking ${tiles.length} photos in order`);
+            for (const t of tiles) {
+                await ctx.tapPct(t.circle.x, t.circle.y);
+                await ctx.sleepRandom(350, 700);
+            }
+            await ctx.sleepRandom(600, 1000);
+            await ctx.tapText('Next'); // the picker's own Next
+        } else {
+            await ctx.tapPct(tiles[0].x, tiles[0].y); // opens a preview of it
+            await ctx.waitForText('Next', 20000);
+            await ctx.tapText('Next');
+        }
+        ctx.log(carousel ? 'Carousel picked' : `Picked the ${kind}`);
         await ctx.sleepRandom(1200, 1800);
+
         // The edit screen ignores Next while a video is still loading, so keep at it until the
-        // caption screen (it has Drafts) shows up.
+        // caption screen (it has Drafts) shows up. Match "Next" exactly so "Your Story" is never tapped.
         for (let i = 0; ; i++) {
             await ctx.waitForText('Next', 20000);
             await ctx.sleepRandom(600, 1000);
             await ctx.tapText('Next');
-            const drafts = await waitFor(ctx, 'Drafts', 6000);
-            if (drafts) break;
+            if (await waitFor(ctx, 'Drafts', 6000)) break;
             if (i >= 3) throw new Error("TikTok's edit screen didn't move on to the caption screen");
             ctx.log('Edit screen still loading; tapping Next again');
         }

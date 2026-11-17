@@ -406,6 +406,25 @@ function createApp() {
             media.remove(req.params.name);
         }),
     );
+    // Posts to TikTok from the Media page: one video, or photos as a carousel in this order.
+    app.post(
+        '/api/media/post',
+        api((req) => {
+            const names = (req.body.names || []).map(String);
+            if (!names.length) throw new Error('Pick a video, or the photos for a carousel');
+            names.forEach(media.filePath); // fail early on missing files
+            return runner.start(
+                'post-tiktok',
+                req.body.udids || [],
+                {
+                    media: names,
+                    caption: String(req.body.caption || ''),
+                    finish: req.body.finish === 'drafts' ? 'drafts' : 'post',
+                },
+                actor(req),
+            );
+        }),
+    );
     app.post(
         '/api/media/send',
         api((req) =>

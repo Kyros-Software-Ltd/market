@@ -157,6 +157,22 @@ function createContext(device, job, control) {
             check();
             return wda().photosAccess();
         },
+        // The newest `count` items in an app's upload picker, oldest of them first, with each
+        // one's select circle. Pass the Media library names that were just sent, in order, to
+        // check each tile is that photo (videos aren't checked).
+        async newestInPickerMany(names) {
+            check();
+            const media = require('./media');
+            const references = names.map((n) => {
+                if (!/\.(jpe?g|png|webp)$/i.test(n)) return null;
+                try {
+                    return media.filePath(n);
+                } catch {
+                    return null;
+                }
+            });
+            return require('./picker').newestTiles(await wda().screenshot(), { count: names.length, references });
+        },
         // Copies files from the Media library into this phone's Photos, dated today, so each is
         // the newest item in every picker. Names as shown on the Media page.
         async sendMedia(names) {
